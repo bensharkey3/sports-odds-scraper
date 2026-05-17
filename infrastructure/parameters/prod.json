@@ -1,0 +1,6 @@
+[
+  { "ParameterKey": "Environment",      "ParameterValue": "prod" },
+  { "ParameterKey": "ScheduleEnabled",  "ParameterValue": "ENABLED" },
+  { "ParameterKey": "LambdaTimeout",    "ParameterValue": "120" },
+  { "ParameterKey": "LambdaMemory",     "ParameterValue": "128" }
+]

@@ -1,0 +1,140 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: AFL Odds Scraper — Sportsbet H2H odds to S3 on a schedule
+
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues: [dev, prod]
+    Description: Deployment environment
+
+  ArtifactBucket:
+    Type: String
+    Description: S3 bucket containing the Lambda deployment zip
+
+  ArtifactKey:
+    Type: String
+    Default: afl-odds/lambda.zip
+    Description: S3 key of the Lambda zip package
+
+  ScheduleEnabled:
+    Type: String
+    AllowedValues: [ENABLED, DISABLED]
+    Default: ENABLED
+    Description: Whether the EventBridge schedule is active
+
+  LambdaTimeout:
+    Type: Number
+    Default: 120
+    Description: Lambda timeout in seconds
+
+  LambdaMemory:
+    Type: Number
+    Default: 128
+    Description: Lambda memory in MB
+
+Conditions:
+  IsProd: !Equals [!Ref Environment, prod]
+
+Resources:
+  # ── S3 ──────────────────────────────────────────────────────────────────
+  ResultsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub afl-odds-${Environment}-${AWS::AccountId}
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireOldOdds
+            Status: Enabled
+            ExpirationInDays: !If [IsProd, 365, 30]
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: afl-odds-scraper
+
+  # ── IAM ─────────────────────────────────────────────────────────────────
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub afl-odds-lambda-${Environment}
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3ResultsWrite
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub arn:aws:s3:::afl-odds-${Environment}-${AWS::AccountId}/odds/*
+
+  # ── Lambda ──────────────────────────────────────────────────────────────
+  ScraperFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub afl-odds-scraper-${Environment}
+      Description: Fetches AFL H2H odds from Sportsbet and writes JSONL to S3
+      Runtime: python3.12
+      Handler: handler.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactBucket
+        S3Key: !Ref ArtifactKey
+      Timeout: !Ref LambdaTimeout
+      MemorySize: !Ref LambdaMemory
+      Environment:
+        Variables:
+          RESULTS_BUCKET: !Ref ResultsBucket
+          ENVIRONMENT: !Ref Environment
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: afl-odds-scraper
+
+  # ── EventBridge schedule ─────────────────────────────────────────────────
+  # Every 2 hours, 9am–9pm AEST (UTC+10) = 23:00,01:00,03:00,05:00,07:00,09:00,11:00 UTC
+  # Note: adjust hours by 1 during AEDT (daylight saving, UTC+11)
+  ScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub afl-odds-schedule-${Environment}
+      Description: Trigger AFL odds scraper every 2 hrs between 9am and 9pm AEST
+      ScheduleExpression: "cron(0 23,1,3,5,7,9,11 * * ? *)"
+      State: !Ref ScheduleEnabled
+      Targets:
+        - Id: ScraperLambda
+          Arn: !GetAtt ScraperFunction.Arn
+
+  ScraperLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ScraperFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ScheduleRule.Arn
+
+Outputs:
+  ResultsBucketName:
+    Description: S3 bucket where odds files are written
+    Value: !Ref ResultsBucket
+    Export:
+      Name: !Sub afl-odds-results-bucket-${Environment}
+
+  LambdaFunctionName:
+    Description: Lambda function name
+    Value: !Ref ScraperFunction
+    Export:
+      Name: !Sub afl-odds-function-${Environment}
+
+  LatestOddsS3Path:
+    Description: S3 path for latest odds snapshot
+    Value: !Sub s3://afl-odds-${Environment}-${AWS::AccountId}/odds/latest.jsonl

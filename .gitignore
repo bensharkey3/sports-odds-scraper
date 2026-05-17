@@ -1,0 +1,18 @@
+# Build artefacts
+build/
+*.zip
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+
+# AWS
+.aws-sam/
+
+# OS
+.DS_Store
+Thumbs.db

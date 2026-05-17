@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(gh repo create afl-odds-scraper --public --source=. --remote=origin --push)"
+    ]
+  }
+}

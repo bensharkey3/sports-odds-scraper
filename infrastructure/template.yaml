@@ -100,27 +100,41 @@ Resources:
         - Key: Project
           Value: afl-odds-scraper
 
-  # ── EventBridge schedule ─────────────────────────────────────────────────
-  # Every 2 hours, 9am–9pm AEST (UTC+10) = 23:00,01:00,03:00,05:00,07:00,09:00,11:00 UTC
-  # Note: adjust hours by 1 during AEDT (daylight saving, UTC+11)
-  ScheduleRule:
-    Type: AWS::Events::Rule
+  # ── EventBridge Scheduler ────────────────────────────────────────────────
+  SchedulerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub afl-odds-scheduler-${Environment}
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: InvokeScraper
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt ScraperFunction.Arn
+
+  # Every 4 hours, 9am–9pm Melbourne time — DST-aware via Australia/Melbourne timezone
+  ScraperSchedule:
+    Type: AWS::Scheduler::Schedule
     Properties:
       Name: !Sub afl-odds-schedule-${Environment}
-      Description: Trigger AFL odds scraper every 2 hrs between 9am and 9pm AEST
-      ScheduleExpression: "cron(0 23,1,3,5,7,9,11 * * ? *)"
+      Description: Trigger AFL odds scraper every 4 hrs between 9am and 9pm Melbourne time
+      ScheduleExpression: "cron(0 9,13,17,21 * * ? *)"
+      ScheduleExpressionTimezone: Australia/Melbourne
       State: !Ref ScheduleEnabled
-      Targets:
-        - Id: ScraperLambda
-          Arn: !GetAtt ScraperFunction.Arn
-
-  ScraperLambdaPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      FunctionName: !Ref ScraperFunction
-      Action: lambda:InvokeFunction
-      Principal: events.amazonaws.com
-      SourceArn: !GetAtt ScheduleRule.Arn
+      FlexibleTimeWindow:
+        Mode: "OFF"
+      Target:
+        Arn: !GetAtt ScraperFunction.Arn
+        RoleArn: !GetAtt SchedulerRole.Arn
 
 Outputs:
   ResultsBucketName:

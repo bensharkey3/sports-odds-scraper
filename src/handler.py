@@ -161,19 +161,14 @@ def _check_favourite_changes(bucket: str, results: list[dict], current_key: str,
 
 
 def s3_lambda_handler(event: dict, context) -> None:
-    for record in event.get("Records", []):
-        key = record["s3"]["object"]["key"]
-        filename = key.split("/")[-1]
-        send_slack(f"afl-odds-scraper file landed in s3. filename: {filename}")
+    pass
 
 
 def lambda_handler(event: dict, context) -> dict:
     try:
         return _scrape(event, context)
     except Exception as e:
-        msg = f"AFL odds scraper failed: {e}"
-        print(msg)
-        send_slack(f":x: {msg}")
+        print(f"AFL odds scraper failed: {e}")
         raise
 
 
@@ -202,7 +197,6 @@ def _scrape(event: dict, context) -> dict:
 
     if not results:
         print("No results — nothing uploaded")
-        send_slack(f":warning: AFL odds scraper: no games found at {scraped_at}")
         return {"statusCode": 200, "games": 0}
 
     # Each line is one JSON object

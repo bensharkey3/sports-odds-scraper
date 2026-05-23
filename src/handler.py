@@ -33,26 +33,25 @@ DELAY_BETWEEN_REQUESTS = 0.5
 s3 = boto3.client("s3")
 ssm = boto3.client("ssm")
 
-_slack_webhook_url = None
+_webhook_cache: dict[str, str] = {}
 
 
-def _get_slack_webhook() -> str | None:
-    global _slack_webhook_url
-    if _slack_webhook_url is not None:
-        return _slack_webhook_url
-    param_name = os.environ.get("SLACK_PARAM_NAME")
+def _get_webhook(param_env_var: str) -> str | None:
+    param_name = os.environ.get(param_env_var)
     if not param_name:
         return None
+    if param_name in _webhook_cache:
+        return _webhook_cache[param_name]
     try:
         resp = ssm.get_parameter(Name=param_name, WithDecryption=True)
-        _slack_webhook_url = resp["Parameter"]["Value"]
+        _webhook_cache[param_name] = resp["Parameter"]["Value"]
     except Exception as e:
-        print(f"Could not fetch Slack webhook from SSM: {e}")
-    return _slack_webhook_url
+        print(f"Could not fetch webhook {param_name} from SSM: {e}")
+    return _webhook_cache.get(param_name)
 
 
-def send_slack(message: str) -> None:
-    url = _get_slack_webhook()
+def send_slack(message: str, param_env_var: str = "SLACK_PARAM_NAME") -> None:
+    url = _get_webhook(param_env_var)
     if not url:
         return
     try:
@@ -157,7 +156,7 @@ def _check_favourite_changes(bucket: str, results: list[dict], current_key: str,
         current_fav = row["team1"] if t1_odds < t2_odds else row["team2"]
         prev_fav = _previous_favourite(bucket, row["event_id"], current_key, all_keys)
         if prev_fav is not None and current_fav != prev_fav:
-            send_slack(f"{row['match']} - the favourite has changed to {current_fav}")
+            send_slack(f"{row['match']} - the favourite has changed to {current_fav}", "SLACK_FAVOURITE_PARAM_NAME")
 
 
 def s3_lambda_handler(event: dict, context) -> None:

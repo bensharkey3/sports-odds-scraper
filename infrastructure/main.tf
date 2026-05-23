@@ -79,7 +79,7 @@ resource "aws_iam_role_policy" "lambda_ssm" {
     Statement = [{
       Effect   = "Allow"
       Action   = "ssm:GetParameter"
-      Resource = "arn:aws:ssm:ap-southeast-2:${local.account_id}:parameter/afl-odds/slack-webhook"
+      Resource = "arn:aws:ssm:ap-southeast-2:${local.account_id}:parameter/afl-odds/*"
     }]
   })
 }
@@ -97,9 +97,10 @@ resource "aws_lambda_function" "scraper" {
 
   environment {
     variables = {
-      RESULTS_BUCKET   = aws_s3_bucket.results.bucket
-      ENVIRONMENT      = var.environment
-      SLACK_PARAM_NAME = "/afl-odds/slack-webhook"
+      RESULTS_BUCKET          = aws_s3_bucket.results.bucket
+      ENVIRONMENT             = var.environment
+      SLACK_PARAM_NAME        = "/afl-odds/slack-webhook"
+      SLACK_FAVOURITE_PARAM_NAME = "/afl-odds/slack-webhook-favourite"
     }
   }
 
@@ -136,7 +137,7 @@ resource "aws_iam_role_policy" "notifier_ssm" {
     Statement = [{
       Effect   = "Allow"
       Action   = "ssm:GetParameter"
-      Resource = "arn:aws:ssm:ap-southeast-2:${local.account_id}:parameter/afl-odds/slack-webhook"
+      Resource = "arn:aws:ssm:ap-southeast-2:${local.account_id}:parameter/afl-odds/*"
     }]
   })
 }

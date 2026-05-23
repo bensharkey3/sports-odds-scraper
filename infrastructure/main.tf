@@ -204,7 +204,7 @@ resource "aws_iam_role_policy" "scheduler_invoke" {
   })
 }
 
-# Every 4 hours, 9am–9pm Melbourne time — DST-aware via Australia/Melbourne timezone
+# Every 2 hours, 9am–9pm Melbourne time — DST-aware via Australia/Melbourne timezone
 resource "aws_scheduler_schedule" "scraper" {
   name  = "afl-odds-schedule-${var.environment}"
   state = var.schedule_enabled
@@ -213,7 +213,7 @@ resource "aws_scheduler_schedule" "scraper" {
     mode = "OFF"
   }
 
-  schedule_expression          = "cron(0 9,13,17,21 * * ? *)"
+  schedule_expression          = "cron(0 9,11,13,15,17,19,21 * * ? *)"
   schedule_expression_timezone = "Australia/Melbourne"
 
   target {

@@ -109,6 +109,57 @@ def parse_odds(event: dict, market: dict) -> dict:
     return row
 
 
+def _list_dated_keys(bucket: str) -> list[str]:
+    paginator = s3.get_paginator("list_objects_v2")
+    keys = []
+    for page in paginator.paginate(Bucket=bucket, Prefix="odds/"):
+        for obj in page.get("Contents", []):
+            key = obj["Key"]
+            if not key.endswith("latest.jsonl"):
+                keys.append(key)
+    return sorted(keys)
+
+
+def _read_jsonl(bucket: str, key: str) -> list[dict]:
+    try:
+        resp = s3.get_object(Bucket=bucket, Key=key)
+        body = resp["Body"].read().decode("utf-8")
+        return [json.loads(line) for line in body.splitlines() if line.strip()]
+    except Exception as e:
+        print(f"Could not read s3://{bucket}/{key}: {e}")
+        return []
+
+
+def _previous_favourite(bucket: str, event_id: int, before_key: str, all_keys: list[str]) -> str | None:
+    """Scan previous files newest-first until we find one with different team odds for this match."""
+    for key in reversed([k for k in all_keys if k < before_key]):
+        for row in _read_jsonl(bucket, key):
+            if row.get("event_id") != event_id:
+                continue
+            if row.get("betting_status") == "OFF":
+                break  # skip this file, look further back
+            t1, t2 = row.get("team1_odds"), row.get("team2_odds")
+            if t1 is None or t2 is None:
+                return None
+            if t1 != t2:
+                return row["team1"] if t1 < t2 else row["team2"]
+            break  # equal odds in this file — look further back
+    return None
+
+
+def _check_favourite_changes(bucket: str, results: list[dict], current_key: str, all_keys: list[str]) -> None:
+    for row in results:
+        if row.get("betting_status") == "OFF":
+            continue
+        t1_odds, t2_odds = row.get("team1_odds"), row.get("team2_odds")
+        if t1_odds is None or t2_odds is None or t1_odds == t2_odds:
+            continue
+        current_fav = row["team1"] if t1_odds < t2_odds else row["team2"]
+        prev_fav = _previous_favourite(bucket, row["event_id"], current_key, all_keys)
+        if prev_fav is not None and current_fav != prev_fav:
+            send_slack(f"{row['match']} - the favourite has changed to {current_fav}")
+
+
 def s3_lambda_handler(event: dict, context) -> None:
     pass
 
@@ -165,5 +216,7 @@ def _scrape(event: dict, context) -> dict:
         )
         print(f"Uploaded s3://{bucket}/{key}")
 
-    send_slack(f"AFL odds scraped: {len(results)} games at {scraped_at}")
+    all_keys = _list_dated_keys(bucket)
+    _check_favourite_changes(bucket, results, dated_key, all_keys)
+    send_slack(f":white_check_mark: AFL odds scraped: {len(results)} games at {scraped_at}")
     return {"statusCode": 200, "games": len(results), "s3Key": dated_key}

@@ -1,7 +1,31 @@
 {
   "permissions": {
     "allow": [
-      "PowerShell(gh repo create afl-odds-scraper --public --source=. --remote=origin --push)"
+      "PowerShell(gh repo create afl-odds-scraper --public --source=. --remote=origin --push)",
+      "Bash(Get-ChildItem -Recurse -Force)",
+      "Bash(Select-Object FullName)",
+      "PowerShell(head *)",
+      "Bash(grep -E \"\\\\.\\(sh|ps1|yml|yaml|json|txt|cfg|conf\\)$\")",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\Ben\\\\Documents\\\\git-repos\\\\afl-odds-scraper\" -Force | Where-Object { $_.PSIsContainer -eq $false })",
+      "Bash(git checkout *)",
+      "Bash(git *)",
+      "Bash(gh pr create --title 'Migrate infrastructure from CloudFormation to Terraform' --body ' *)",
+      "Bash(make deploy *)",
+      "Bash(aws sts *)",
+      "Bash(aws s3 cp *)",
+      "Bash(terraform init *)",
+      "PowerShell(Get-Command *)",
+      "PowerShell(aws sts get-caller-identity *)",
+      "PowerShell(aws cloudformation list-stacks *)",
+      "PowerShell(aws lambda list-functions *)",
+      "PowerShell(aws s3 ls *)",
+      "PowerShell(aws scheduler list-schedules *)",
+      "Bash(terraform import *)",
+      "Bash(aws iam *)",
+      "Bash(terraform plan *)",
+      "Bash(terraform apply *)",
+      "Bash(aws cloudformation delete-stack *)",
+      "Bash(aws cloudformation describe-stacks *)"
     ]
   }
 }

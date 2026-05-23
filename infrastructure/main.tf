@@ -213,7 +213,7 @@ resource "aws_scheduler_schedule" "scraper" {
     mode = "OFF"
   }
 
-  schedule_expression          = "cron(0 9,13,17,21 * * ? *)"
+  schedule_expression          = "cron(0 9,11,13,15,17,19,21 * * ? *)"
   schedule_expression_timezone = "Australia/Melbourne"
 
   target {

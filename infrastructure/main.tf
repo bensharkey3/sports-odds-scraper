@@ -63,6 +63,20 @@ resource "aws_iam_role_policy" "lambda_s3" {
   })
 }
 
+resource "aws_iam_role_policy" "lambda_ssm" {
+  name = "ssm-slack-webhook"
+  role = aws_iam_role.lambda.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = "ssm:GetParameter"
+      Resource = "arn:aws:ssm:ap-southeast-2:${local.account_id}:parameter/afl-odds/slack-webhook"
+    }]
+  })
+}
+
 resource "aws_lambda_function" "scraper" {
   function_name = "afl-odds-scraper-${var.environment}"
   description   = "Fetches AFL H2H odds from Sportsbet and writes JSONL to S3"
@@ -76,8 +90,9 @@ resource "aws_lambda_function" "scraper" {
 
   environment {
     variables = {
-      RESULTS_BUCKET = aws_s3_bucket.results.bucket
-      ENVIRONMENT    = var.environment
+      RESULTS_BUCKET   = aws_s3_bucket.results.bucket
+      ENVIRONMENT      = var.environment
+      SLACK_PARAM_NAME = "/afl-odds/slack-webhook"
     }
   }
 

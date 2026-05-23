@@ -31,6 +31,34 @@ REQUEST_TIMEOUT = 15
 DELAY_BETWEEN_REQUESTS = 0.5
 
 s3 = boto3.client("s3")
+ssm = boto3.client("ssm")
+
+_slack_webhook_url = None
+
+
+def _get_slack_webhook() -> str | None:
+    global _slack_webhook_url
+    if _slack_webhook_url is not None:
+        return _slack_webhook_url
+    param_name = os.environ.get("SLACK_PARAM_NAME")
+    if not param_name:
+        return None
+    try:
+        resp = ssm.get_parameter(Name=param_name, WithDecryption=True)
+        _slack_webhook_url = resp["Parameter"]["Value"]
+    except Exception as e:
+        print(f"Could not fetch Slack webhook from SSM: {e}")
+    return _slack_webhook_url
+
+
+def send_slack(message: str) -> None:
+    url = _get_slack_webhook()
+    if not url:
+        return
+    try:
+        requests.post(url, json={"text": message}, timeout=5)
+    except Exception as e:
+        print(f"Failed to send Slack notification: {e}")
 
 
 def get_afl_events() -> list[dict]:
@@ -82,6 +110,16 @@ def parse_odds(event: dict, market: dict) -> dict:
 
 
 def lambda_handler(event: dict, context) -> dict:
+    try:
+        return _scrape(event, context)
+    except Exception as e:
+        msg = f"AFL odds scraper failed: {e}"
+        print(msg)
+        send_slack(f":x: {msg}")
+        raise
+
+
+def _scrape(event: dict, context) -> dict:
     bucket = os.environ["RESULTS_BUCKET"]
     now = datetime.now(tz=timezone.utc)
     scraped_at = now.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -106,6 +144,7 @@ def lambda_handler(event: dict, context) -> dict:
 
     if not results:
         print("No results — nothing uploaded")
+        send_slack(f":warning: AFL odds scraper: no games found at {scraped_at}")
         return {"statusCode": 200, "games": 0}
 
     # Each line is one JSON object
@@ -125,4 +164,5 @@ def lambda_handler(event: dict, context) -> dict:
         )
         print(f"Uploaded s3://{bucket}/{key}")
 
+    send_slack(f":white_check_mark: AFL odds scraped: {len(results)} games at {scraped_at}")
     return {"statusCode": 200, "games": len(results), "s3Key": dated_key}

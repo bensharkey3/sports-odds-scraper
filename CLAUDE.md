@@ -2,7 +2,7 @@
 
 ## What this project does
 
-Scrapes AFL head-to-head odds from the Sportsbet API and writes JSONL files to S3. Runs as an AWS Lambda function triggered by EventBridge Scheduler every 4 hours between 9am–9pm Melbourne time. The purpose is to create a data that can be analysed later.
+Scrapes AFL head-to-head odds from the Sportsbet API and writes JSONL files to S3. Runs as an AWS Lambda function triggered by EventBridge Scheduler every 2 hours between 9am–9pm Melbourne time. The purpose is to create a data that can be analysed later.
 
 ## Priorities
 

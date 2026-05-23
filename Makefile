@@ -5,8 +5,6 @@ REGION ?= ap-southeast-2
 ACCOUNT_ID    := $(shell aws sts get-caller-identity --query Account --output text)
 ARTIFACT_BUCKET := afl-odds-artifacts-$(ACCOUNT_ID)
 ARTIFACT_KEY    := afl-odds/lambda.zip
-STACK_NAME      := afl-odds-$(ENV)
-PARAM_FILE      := infrastructure/parameters/$(ENV).json
 
 BUILD_DIR := build
 ZIP_PATH  := $(BUILD_DIR)/lambda.zip
@@ -18,8 +16,8 @@ help:
 	@echo "  make bootstrap          Create artifact S3 bucket (run once per account)"
 	@echo "  make build              Package Lambda with dependencies"
 	@echo "  make upload             Upload zip to S3"
-	@echo "  make deploy  [ENV=dev]  Deploy/update CloudFormation stack"
-	@echo "  make destroy [ENV=dev]  Delete CloudFormation stack"
+	@echo "  make deploy  [ENV=dev]  Deploy/update Terraform infrastructure"
+	@echo "  make destroy [ENV=dev]  Destroy Terraform infrastructure"
 	@echo "  make invoke  [ENV=dev]  Manually invoke the Lambda"
 	@echo "  make logs    [ENV=dev]  Tail CloudWatch logs"
 	@echo ""
@@ -49,32 +47,27 @@ upload: build
 
 # ── Deploy ────────────────────────────────────────────────────────────────────
 deploy: upload
-	@echo "Deploying stack: $(STACK_NAME) (ENV=$(ENV))"
-	aws cloudformation deploy \
-		--template-file infrastructure/template.yaml \
-		--stack-name $(STACK_NAME) \
-		--parameter-overrides \
-			$$(jq -r '.[] | "\(.ParameterKey)=\(.ParameterValue)"' $(PARAM_FILE) | tr '\n' ' ') \
-			ArtifactBucket=$(ARTIFACT_BUCKET) \
-			ArtifactKey=$(ARTIFACT_KEY) \
-		--capabilities CAPABILITY_NAMED_IAM \
-		--region $(REGION) \
-		--no-fail-on-empty-changeset
+	@echo "Deploying $(ENV) environment..."
+	cd infrastructure && terraform init -input=false && \
+		(terraform workspace select $(ENV) 2>/dev/null || terraform workspace new $(ENV)) && \
+		terraform apply -auto-approve \
+			-var-file=tfvars/$(ENV).tfvars \
+			-var="artifact_bucket=$(ARTIFACT_BUCKET)" \
+			-var="artifact_key=$(ARTIFACT_KEY)"
 	@echo ""
-	@echo "Stack outputs:"
-	aws cloudformation describe-stacks \
-		--stack-name $(STACK_NAME) \
-		--region $(REGION) \
-		--query "Stacks[0].Outputs" \
-		--output table
+	@echo "Outputs:"
+	@cd infrastructure && terraform workspace select $(ENV) 2>/dev/null && terraform output
 
 # ── Destroy ───────────────────────────────────────────────────────────────────
 destroy:
-	@echo "Deleting stack: $(STACK_NAME)"
+	@echo "Destroying $(ENV) environment..."
 	@read -p "Are you sure? [y/N] " confirm && [ "$$confirm" = "y" ]
-	aws cloudformation delete-stack --stack-name $(STACK_NAME) --region $(REGION)
-	aws cloudformation wait stack-delete-complete --stack-name $(STACK_NAME) --region $(REGION)
-	@echo "Stack deleted"
+	cd infrastructure && terraform workspace select $(ENV) && \
+		terraform destroy -auto-approve \
+			-var-file=tfvars/$(ENV).tfvars \
+			-var="artifact_bucket=$(ARTIFACT_BUCKET)" \
+			-var="artifact_key=$(ARTIFACT_KEY)"
+	@echo "Destroyed"
 
 # ── Invoke manually ───────────────────────────────────────────────────────────
 invoke:

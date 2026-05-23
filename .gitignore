@@ -13,6 +13,12 @@ venv/
 # AWS
 .aws-sam/
 
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+terraform.tfstate.d/
+
 # OS
 .DS_Store
 Thumbs.db

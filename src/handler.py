@@ -109,6 +109,13 @@ def parse_odds(event: dict, market: dict) -> dict:
     return row
 
 
+def s3_lambda_handler(event: dict, context) -> None:
+    for record in event.get("Records", []):
+        key = record["s3"]["object"]["key"]
+        filename = key.split("/")[-1]
+        send_slack(f"afl-odds-scraper file landed in s3. filename: {filename}")
+
+
 def lambda_handler(event: dict, context) -> dict:
     try:
         return _scrape(event, context)

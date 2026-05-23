@@ -102,6 +102,81 @@ resource "aws_lambda_function" "scraper" {
   }
 }
 
+resource "aws_iam_role" "notifier" {
+  name = "afl-odds-s3-notifier-${var.environment}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "lambda.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "notifier_basic" {
+  role       = aws_iam_role.notifier.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy" "notifier_ssm" {
+  name = "ssm-slack-webhook"
+  role = aws_iam_role.notifier.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = "ssm:GetParameter"
+      Resource = "arn:aws:ssm:ap-southeast-2:${local.account_id}:parameter/afl-odds/slack-webhook"
+    }]
+  })
+}
+
+resource "aws_lambda_function" "s3_notifier" {
+  function_name = "afl-odds-s3-notifier-${var.environment}"
+  description   = "Sends Slack notification when a file lands in the odds S3 bucket"
+  role          = aws_iam_role.notifier.arn
+  handler       = "handler.s3_lambda_handler"
+  runtime       = "python3.12"
+  timeout       = 10
+  memory_size   = 128
+  s3_bucket     = var.artifact_bucket
+  s3_key        = var.artifact_key
+
+  environment {
+    variables = {
+      SLACK_PARAM_NAME = "/afl-odds/slack-webhook"
+    }
+  }
+
+  tags = {
+    Environment = var.environment
+    Project     = "afl-odds-scraper"
+  }
+}
+
+resource "aws_lambda_permission" "s3_invoke_notifier" {
+  statement_id  = "AllowS3Invoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.s3_notifier.function_name
+  principal     = "s3.amazonaws.com"
+  source_arn    = aws_s3_bucket.results.arn
+}
+
+resource "aws_s3_bucket_notification" "results" {
+  bucket = aws_s3_bucket.results.id
+
+  lambda_function {
+    lambda_function_arn = aws_lambda_function.s3_notifier.arn
+    events              = ["s3:ObjectCreated:*"]
+    filter_prefix       = "odds/"
+  }
+
+  depends_on = [aws_lambda_permission.s3_invoke_notifier]
+}
+
 resource "aws_iam_role" "scheduler" {
   name = "afl-odds-scheduler-${var.environment}"
 

@@ -1,0 +1,4 @@
+bucket  = "afl-odds-artifacts-<ACCOUNT_ID>"
+key     = "terraform/dev.tfstate"
+region  = "ap-southeast-2"
+encrypt = true

@@ -18,6 +18,7 @@ venv/
 *.tfstate
 *.tfstate.backup
 terraform.tfstate.d/
+infrastructure/backend.hcl
 
 # OS
 .DS_Store

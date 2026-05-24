@@ -24,7 +24,7 @@ variable "schedule_enabled" {
   description = "Whether the EventBridge schedule is active"
   validation {
     condition     = contains(["ENABLED", "DISABLED"], var.schedule_enabled)
-    error_message = "schedule_enabled must be ENABLED or DISABLED."
+    error_message = "The schedule_enabled value must be ENABLED or DISABLED."
   }
 }
 

@@ -5,6 +5,7 @@ on:
     branches: ["**"]
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   AWS_DEFAULT_REGION: ap-southeast-2
   ARTIFACT_BUCKET: afl-odds-artifacts-${{ secrets.AWS_ACCOUNT_ID }}
   ARTIFACT_KEY: afl-odds/lambda.zip

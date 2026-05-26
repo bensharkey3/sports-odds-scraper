@@ -25,7 +25,8 @@
       "Bash(terraform plan *)",
       "Bash(terraform apply *)",
       "Bash(aws cloudformation delete-stack *)",
-      "Bash(aws cloudformation describe-stacks *)"
+      "Bash(aws cloudformation describe-stacks *)",
+      "Bash(gh pr *)"
     ]
   }
 }

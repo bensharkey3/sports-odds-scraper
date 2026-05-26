@@ -274,3 +274,104 @@ class TestCheckBrownlowFavouriteChange:
             handler._check_brownlow_favourite_change("b", players, CURRENT, [])
         mock_prev.assert_not_called()
         mock_slack.assert_not_called()
+
+
+# ── Premiership helpers ───────────────────────────────────────────────────────
+
+def _premiership_event(event_id=9641840, name="AFL Premiership Winner 2026", status="PRICED"):
+    return {"id": event_id, "name": name, "startTime": 1790415000, "bettingStatus": status, "eventSort": "GRP1"}
+
+
+def _premiership_market(selections=None):
+    if selections is None:
+        selections = [
+            {"name": "Fremantle", "price": {"winPrice": 5.5}},
+            {"name": "Geelong Cats", "price": {"winPrice": 5.75}},
+            {"name": "Sydney Swans", "price": {"winPrice": 6.0}},
+        ]
+    return {"statusCode": "A", "selections": selections}
+
+
+def _team_row(team, odds, event_id=9641840, event_name="AFL Premiership Winner 2026"):
+    return {"event_id": event_id, "event_name": event_name, "team": team, "odds": odds}
+
+
+# ── parse_premiership_odds ────────────────────────────────────────────────────
+
+class TestParsePremiershipOdds:
+    def test_returns_one_row_per_team(self):
+        rows = handler.parse_premiership_odds(_premiership_event(), _premiership_market(), "2026-05-26T10:00:00Z")
+        assert len(rows) == 3
+
+    def test_row_fields(self):
+        rows = handler.parse_premiership_odds(_premiership_event(), _premiership_market(), "2026-05-26T10:00:00Z")
+        row = rows[0]
+        assert row["event_id"] == 9641840
+        assert row["event_name"] == "AFL Premiership Winner 2026"
+        assert row["scraped_at"] == "2026-05-26T10:00:00Z"
+        assert row["team"] == "Fremantle"
+        assert row["odds"] == 5.5
+        assert row["betting_status"] == "PRICED"
+        assert row["market_status"] == "A"
+
+    def test_missing_price_returns_none(self):
+        market = _premiership_market([{"name": "Fremantle", "price": {}}])
+        rows = handler.parse_premiership_odds(_premiership_event(), market, "2026-05-26T10:00:00Z")
+        assert rows[0]["odds"] is None
+
+
+# ── _previous_premiership_favourite ──────────────────────────────────────────
+
+class TestPreviousPremiershipFavourite:
+    def test_returns_team_with_lowest_odds(self):
+        rows = [_team_row("Fremantle", 5.5), _team_row("Geelong Cats", 5.75)]
+        with patch.object(handler, "_read_jsonl", return_value=rows):
+            assert handler._previous_premiership_favourite("b", CURRENT, [PREV1]) == "Fremantle"
+
+    def test_returns_none_when_no_history(self):
+        assert handler._previous_premiership_favourite("b", CURRENT, []) is None
+
+    def test_skips_files_with_no_priced_selections(self):
+        def fake_read(bucket, key):
+            if key == PREV1:
+                return [_team_row("Fremantle", None)]
+            return [_team_row("Geelong Cats", 5.75)]
+
+        with patch.object(handler, "_read_jsonl", side_effect=fake_read):
+            assert handler._previous_premiership_favourite("b", CURRENT, [PREV2, PREV1]) == "Geelong Cats"
+
+
+# ── _check_premiership_favourite_change ──────────────────────────────────────
+
+class TestCheckPremiershipFavouriteChange:
+    def test_sends_alert_when_favourite_flips(self):
+        teams = [_team_row("Fremantle", 5.5), _team_row("Geelong Cats", 5.75)]
+        with patch.object(handler, "_previous_premiership_favourite", return_value="Geelong Cats"), \
+             patch.object(handler, "send_slack") as mock_slack:
+            handler._check_premiership_favourite_change("b", teams, CURRENT, [])
+        mock_slack.assert_called_once_with(
+            "AFL Premiership Winner 2026 - the favourite has changed to Fremantle",
+            "SLACK_FAVOURITE_PARAM_NAME",
+        )
+
+    def test_no_alert_when_favourite_unchanged(self):
+        teams = [_team_row("Fremantle", 5.5), _team_row("Geelong Cats", 5.75)]
+        with patch.object(handler, "_previous_premiership_favourite", return_value="Fremantle"), \
+             patch.object(handler, "send_slack") as mock_slack:
+            handler._check_premiership_favourite_change("b", teams, CURRENT, [])
+        mock_slack.assert_not_called()
+
+    def test_no_alert_when_no_previous_data(self):
+        teams = [_team_row("Fremantle", 5.5)]
+        with patch.object(handler, "_previous_premiership_favourite", return_value=None), \
+             patch.object(handler, "send_slack") as mock_slack:
+            handler._check_premiership_favourite_change("b", teams, CURRENT, [])
+        mock_slack.assert_not_called()
+
+    def test_no_alert_when_all_odds_null(self):
+        teams = [_team_row("Fremantle", None)]
+        with patch.object(handler, "_previous_premiership_favourite") as mock_prev, \
+             patch.object(handler, "send_slack") as mock_slack:
+            handler._check_premiership_favourite_change("b", teams, CURRENT, [])
+        mock_prev.assert_not_called()
+        mock_slack.assert_not_called()

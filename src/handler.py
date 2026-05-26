@@ -406,16 +406,22 @@ def _scrape(event: dict, context) -> dict:
 
     all_keys = _list_dated_keys(bucket)
     _check_favourite_changes(bucket, results, dated_key, all_keys)
-    send_slack(f":white_check_mark: AFL odds scraped: {len(results)} games at {scraped_at}")
 
+    brownlow_count = 0
     try:
-        _scrape_brownlow(bucket, now, scraped_at)
+        brownlow_count = _scrape_brownlow(bucket, now, scraped_at)
     except Exception as e:
         print(f"Brownlow scrape failed: {e}")
 
+    premiership_count = 0
     try:
-        _scrape_premiership(bucket, now, scraped_at)
+        premiership_count = _scrape_premiership(bucket, now, scraped_at)
     except Exception as e:
         print(f"Premiership scrape failed: {e}")
 
+    send_slack(
+        f":white_check_mark: AFL odds scraped at {scraped_at} — "
+        f"{len(results)} H2H games, {brownlow_count} Brownlow players, "
+        f"{premiership_count} Premiership teams"
+    )
     return {"statusCode": 200, "games": len(results), "s3Key": dated_key}

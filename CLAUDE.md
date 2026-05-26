@@ -25,7 +25,5 @@ Scrapes AFL head-to-head odds from the Sportsbet API and writes JSONL files to S
 
 ## Git workflow
 
-- Always create a new branch for each change.
+- After completing any code change, always create a new branch, commit the changes, and raise a PR without waiting to be asked.
 - Do not commit directly to main branch.
-- Raise a pull request for approval. I must approve before merge.
-

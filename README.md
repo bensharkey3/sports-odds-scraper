@@ -1,20 +1,28 @@
 # AFL Odds Scraper
 
-Scrapes AFL head-to-head odds from the Sportsbet API and writes JSONL files to S3. Runs as an AWS Lambda function on a scheduled trigger every 2 hours between 9am–9pm Melbourne time.
+Scrapes AFL odds from the Sportsbet API and writes JSONL files to S3. Runs as an AWS Lambda function on a scheduled trigger every 2 hours between 9am–9pm Melbourne time.
 
 ## What it does
 
-- Fetches all upcoming AFL matches and their head-to-head markets from Sportsbet
-- Writes one JSONL record per match to S3 after each run
-- Sends a Slack notification summarising each scrape
-- Detects when the betting favourite for a match has changed and sends a separate Slack alert
+Each run scrapes three markets:
+
+| Market | Description |
+|--------|-------------|
+| **H2H match odds** | Head-to-head odds for all upcoming AFL matches |
+| **Brownlow Medal** | Winner odds for every Brownlow Medal candidate |
+| **Premiership Winner** | Winner odds for all 18 AFL teams to win the premiership |
+
+After each run it:
+- Writes JSONL results to S3 (timestamped + latest)
+- Sends a Slack summary notification
+- Detects when the betting favourite has changed and sends a separate Slack alert
 
 ## Architecture
 
 ```
 EventBridge Scheduler (every 2hrs, 9am–9pm AEST/AEDT)
     └── Lambda: afl-odds-scraper
-            ├── Sportsbet API  (fetch events + H2H markets)
+            ├── Sportsbet API  (fetch H2H, Brownlow, and Premiership Winner markets)
             ├── S3             (write JSONL results)
             ├── S3             (read historical files for favourite change detection)
             ├── SSM            (fetch Slack webhook URLs)
@@ -25,14 +33,11 @@ All infrastructure is managed with Terraform and deployed to AWS `ap-southeast-2
 
 ## Output format
 
-Each run produces two S3 files:
+### H2H match odds
 
-| Path | Description |
-|------|-------------|
-| `odds/YYYY/MM/DD/HH-MM-SSZ.jsonl` | Timestamped snapshot (retained 30 days in dev, 365 in prod) |
-| `odds/latest.jsonl` | Overwritten each run — always the current snapshot |
+S3 paths: `odds/YYYY/MM/DD/HH-MM-SSZ.jsonl` (timestamped) and `odds/latest.jsonl`
 
-Each line in the JSONL is one match:
+One record per match:
 
 ```json
 {
@@ -48,19 +53,57 @@ Each line in the JSONL is one match:
 }
 ```
 
+### Brownlow Medal
+
+S3 paths: `brownlow/YYYY/MM/DD/HH-MM-SSZ.jsonl` (timestamped) and `brownlow/latest.jsonl`
+
+One record per candidate player:
+
+```json
+{
+  "event_id": 9641792,
+  "event_name": "2026 AFL Brownlow Medal",
+  "scraped_at": "2026-05-24T09:00:00Z",
+  "start_time": "2027-07-21T09:30:00Z",
+  "betting_status": "PRICED",
+  "player": "Bailey Smith",
+  "odds": 4.0,
+  "market_status": "A"
+}
+```
+
+### Premiership Winner
+
+S3 paths: `premiership/YYYY/MM/DD/HH-MM-SSZ.jsonl` (timestamped) and `premiership/latest.jsonl`
+
+One record per AFL team:
+
+```json
+{
+  "event_id": 9641840,
+  "event_name": "AFL Premiership Winner 2026",
+  "scraped_at": "2026-05-24T09:00:00Z",
+  "start_time": "2026-09-26T09:30:00Z",
+  "betting_status": "PRICED",
+  "team": "Fremantle",
+  "odds": 5.5,
+  "market_status": "A"
+}
+```
+
 ## Slack notifications
 
 | Channel | When | Example |
 |---------|------|---------|
 | `afl-odds-scraper` | After every successful scrape | `✅ AFL odds scraped: 8 games at 2026-05-24T09:00:00Z` |
-| `afl-odds-scraper` (favourite alerts) | When the favourite flips for a match | `Richmond v Carlton - the favourite has changed to Carlton` |
+| `afl-odds-scraper` (favourite alerts) | When the favourite flips for any market | `Richmond v Carlton - the favourite has changed to Carlton` |
 
 Webhook URLs are stored in AWS SSM Parameter Store as `SecureString`:
 
 | Parameter | Used for |
 |-----------|----------|
 | `/afl-odds/slack-webhook` | Scrape summary |
-| `/afl-odds/slack-webhook-favourite` | Favourite change alerts |
+| `/afl-odds/slack-webhook-favourite` | Favourite change alerts (H2H, Brownlow, Premiership) |
 
 ## Project structure
 

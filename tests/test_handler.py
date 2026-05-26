@@ -173,3 +173,104 @@ class TestCheckFavouriteChanges:
              patch.object(handler, "send_slack") as mock_slack:
             handler._check_favourite_changes("b", results, CURRENT, [])
         assert mock_slack.call_count == 2
+
+
+# ── Brownlow helpers ──────────────────────────────────────────────────────────
+
+def _brownlow_event(event_id=9641792, name="2026 AFL Brownlow Medal", status="PRICED"):
+    return {"id": event_id, "name": name, "startTime": 1789983000, "bettingStatus": status, "eventSort": "TNMT"}
+
+
+def _brownlow_market(selections=None):
+    if selections is None:
+        selections = [
+            {"name": "Bailey Smith", "price": {"winPrice": 4.0}},
+            {"name": "Nick Daicos", "price": {"winPrice": 4.0}},
+            {"name": "Marcus Bontempelli", "price": {"winPrice": 5.0}},
+        ]
+    return {"statusCode": "A", "selections": selections}
+
+
+def _player_row(player, odds, event_id=9641792, event_name="2026 AFL Brownlow Medal"):
+    return {"event_id": event_id, "event_name": event_name, "player": player, "odds": odds}
+
+
+# ── parse_brownlow_odds ───────────────────────────────────────────────────────
+
+class TestParseBrownlowOdds:
+    def test_returns_one_row_per_player(self):
+        rows = handler.parse_brownlow_odds(_brownlow_event(), _brownlow_market(), "2026-05-26T10:00:00Z")
+        assert len(rows) == 3
+
+    def test_row_fields(self):
+        rows = handler.parse_brownlow_odds(_brownlow_event(), _brownlow_market(), "2026-05-26T10:00:00Z")
+        row = rows[0]
+        assert row["event_id"] == 9641792
+        assert row["event_name"] == "2026 AFL Brownlow Medal"
+        assert row["scraped_at"] == "2026-05-26T10:00:00Z"
+        assert row["player"] == "Bailey Smith"
+        assert row["odds"] == 4.0
+        assert row["betting_status"] == "PRICED"
+        assert row["market_status"] == "A"
+
+    def test_missing_price_returns_none(self):
+        market = _brownlow_market([{"name": "Bailey Smith", "price": {}}])
+        rows = handler.parse_brownlow_odds(_brownlow_event(), market, "2026-05-26T10:00:00Z")
+        assert rows[0]["odds"] is None
+
+
+# ── _previous_brownlow_favourite ──────────────────────────────────────────────
+
+class TestPreviousBrownlowFavourite:
+    def test_returns_player_with_lowest_odds(self):
+        rows = [_player_row("Bailey Smith", 4.0), _player_row("Nick Daicos", 5.0)]
+        with patch.object(handler, "_read_jsonl", return_value=rows):
+            assert handler._previous_brownlow_favourite("b", CURRENT, [PREV1]) == "Bailey Smith"
+
+    def test_returns_none_when_no_history(self):
+        assert handler._previous_brownlow_favourite("b", CURRENT, []) is None
+
+    def test_skips_files_with_no_priced_selections(self):
+        def fake_read(bucket, key):
+            if key == PREV1:
+                return [_player_row("Bailey Smith", None)]
+            return [_player_row("Nick Daicos", 4.0)]
+
+        with patch.object(handler, "_read_jsonl", side_effect=fake_read):
+            assert handler._previous_brownlow_favourite("b", CURRENT, [PREV2, PREV1]) == "Nick Daicos"
+
+
+# ── _check_brownlow_favourite_change ─────────────────────────────────────────
+
+class TestCheckBrownlowFavouriteChange:
+    def test_sends_alert_when_favourite_flips(self):
+        players = [_player_row("Bailey Smith", 4.0), _player_row("Nick Daicos", 5.0)]
+        with patch.object(handler, "_previous_brownlow_favourite", return_value="Nick Daicos"), \
+             patch.object(handler, "send_slack") as mock_slack:
+            handler._check_brownlow_favourite_change("b", players, CURRENT, [])
+        mock_slack.assert_called_once_with(
+            "2026 AFL Brownlow Medal - the favourite has changed to Bailey Smith",
+            "SLACK_FAVOURITE_PARAM_NAME",
+        )
+
+    def test_no_alert_when_favourite_unchanged(self):
+        players = [_player_row("Bailey Smith", 4.0), _player_row("Nick Daicos", 5.0)]
+        with patch.object(handler, "_previous_brownlow_favourite", return_value="Bailey Smith"), \
+             patch.object(handler, "send_slack") as mock_slack:
+            handler._check_brownlow_favourite_change("b", players, CURRENT, [])
+        mock_slack.assert_not_called()
+
+    def test_no_alert_when_no_previous_data(self):
+        players = [_player_row("Bailey Smith", 4.0)]
+        with patch.object(handler, "_previous_brownlow_favourite", return_value=None), \
+             patch.object(handler, "send_slack") as mock_slack:
+            handler._check_brownlow_favourite_change("b", players, CURRENT, [])
+        mock_slack.assert_not_called()
+
+    def test_no_alert_when_all_odds_null(self):
+        players = [_player_row("Bailey Smith", None)]
+        with patch.object(handler, "_previous_brownlow_favourite") as mock_prev, \
+             patch.object(handler, "send_slack") as mock_slack:
+            handler._check_brownlow_favourite_change("b", players, CURRENT, [])
+        mock_prev.assert_not_called()
+        mock_slack.assert_not_called()

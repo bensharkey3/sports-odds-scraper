@@ -241,6 +241,100 @@ def _scrape_brownlow(bucket: str, now: datetime, scraped_at: str) -> int:
     return len(players)
 
 
+def get_premiership_event() -> dict | None:
+    url = f"{BASE_URL}/Competitions/{AFL_COMPETITION_ID}/Events"
+    response = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+    for e in response.json():
+        if e.get("eventSort") == "GRP1" and "Premiership Winner" in e.get("name", ""):
+            return e
+    return None
+
+
+def get_premiership_market(event_id: int) -> dict | None:
+    url = f"{BASE_URL}/Events/{event_id}/Markets"
+    response = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+    markets = response.json()
+    return markets[0] if markets else None
+
+
+def parse_premiership_odds(event: dict, market: dict, scraped_at: str) -> list[dict]:
+    start_dt = datetime.fromtimestamp(
+        event.get("startTime", 0), tz=timezone.utc
+    ).strftime("%Y-%m-%dT%H:%M:%SZ")
+    rows = []
+    for sel in market.get("selections", []):
+        rows.append({
+            "event_id": event["id"],
+            "event_name": event["name"],
+            "scraped_at": scraped_at,
+            "start_time": start_dt,
+            "betting_status": event.get("bettingStatus", ""),
+            "team": sel.get("name", ""),
+            "odds": sel.get("price", {}).get("winPrice"),
+            "market_status": market.get("statusCode", ""),
+        })
+    return rows
+
+
+def _previous_premiership_favourite(bucket: str, before_key: str, all_keys: list[str]) -> str | None:
+    for key in reversed([k for k in all_keys if k < before_key]):
+        rows = _read_jsonl(bucket, key)
+        priced = [r for r in rows if r.get("odds") is not None]
+        if not priced:
+            continue
+        return min(priced, key=lambda r: r["odds"])["team"]
+    return None
+
+
+def _check_premiership_favourite_change(bucket: str, teams: list[dict], current_key: str, all_keys: list[str]) -> None:
+    priced = [r for r in teams if r.get("odds") is not None]
+    if not priced:
+        return
+    current_fav = min(priced, key=lambda r: r["odds"])["team"]
+    prev_fav = _previous_premiership_favourite(bucket, current_key, all_keys)
+    if prev_fav is not None and current_fav != prev_fav:
+        event_name = teams[0].get("event_name", "AFL Premiership Winner")
+        send_slack(f"{event_name} - the favourite has changed to {current_fav}", "SLACK_FAVOURITE_PARAM_NAME")
+
+
+def _scrape_premiership(bucket: str, now: datetime, scraped_at: str) -> int:
+    print("Fetching AFL Premiership Winner event")
+    event = get_premiership_event()
+    if event is None:
+        print("No AFL Premiership Winner event found")
+        return 0
+
+    time.sleep(DELAY_BETWEEN_REQUESTS)
+    market = get_premiership_market(event["id"])
+    if market is None:
+        print(f"No market for Premiership event {event['id']}")
+        return 0
+
+    teams = parse_premiership_odds(event, market, scraped_at)
+    if not teams:
+        print("No Premiership selections found")
+        return 0
+
+    jsonl_body = "\n".join(json.dumps(r) for r in teams) + "\n"
+    dated_key = f"premiership/{now.strftime('%Y/%m/%d')}/{now.strftime('%H-%M-%S')}Z.jsonl"
+    latest_key = "premiership/latest.jsonl"
+
+    for key in (dated_key, latest_key):
+        s3.put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=jsonl_body.encode("utf-8"),
+            ContentType="application/x-ndjson",
+        )
+        print(f"Uploaded s3://{bucket}/{key}")
+
+    all_keys = _list_dated_keys(bucket, prefix="premiership/")
+    _check_premiership_favourite_change(bucket, teams, dated_key, all_keys)
+    return len(teams)
+
+
 def _check_favourite_changes(bucket: str, results: list[dict], current_key: str, all_keys: list[str]) -> None:
     for row in results:
         if row.get("betting_status") == "OFF":
@@ -318,5 +412,10 @@ def _scrape(event: dict, context) -> dict:
         _scrape_brownlow(bucket, now, scraped_at)
     except Exception as e:
         print(f"Brownlow scrape failed: {e}")
+
+    try:
+        _scrape_premiership(bucket, now, scraped_at)
+    except Exception as e:
+        print(f"Premiership scrape failed: {e}")
 
     return {"statusCode": 200, "games": len(results), "s3Key": dated_key}

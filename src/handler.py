@@ -13,6 +13,7 @@ import requests
 
 BASE_URL = "https://www.sportsbet.com.au/apigw/sportsbook-sports/Sportsbook/Sports"
 AFL_COMPETITION_ID = 4165
+BROWNLOW_COMPETITION_ID = 6136
 
 HEADERS = {
     "User-Agent": (
@@ -108,10 +109,10 @@ def parse_odds(event: dict, market: dict) -> dict:
     return row
 
 
-def _list_dated_keys(bucket: str) -> list[str]:
+def _list_dated_keys(bucket: str, prefix: str = "odds/") -> list[str]:
     paginator = s3.get_paginator("list_objects_v2")
     keys = []
-    for page in paginator.paginate(Bucket=bucket, Prefix="odds/"):
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
         for obj in page.get("Contents", []):
             key = obj["Key"]
             if not key.endswith("latest.jsonl"):
@@ -144,6 +145,100 @@ def _previous_favourite(bucket: str, event_id: int, before_key: str, all_keys: l
                 return row["team1"] if t1 < t2 else row["team2"]
             break  # equal odds in this file — look further back
     return None
+
+
+def get_brownlow_event() -> dict | None:
+    url = f"{BASE_URL}/Competitions/{BROWNLOW_COMPETITION_ID}/Events"
+    response = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+    for e in response.json():
+        if e.get("eventSort") == "TNMT":
+            return e
+    return None
+
+
+def get_brownlow_market(event_id: int) -> dict | None:
+    url = f"{BASE_URL}/Events/{event_id}/Markets"
+    response = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+    markets = response.json()
+    return markets[0] if markets else None
+
+
+def parse_brownlow_odds(event: dict, market: dict, scraped_at: str) -> list[dict]:
+    start_dt = datetime.fromtimestamp(
+        event.get("startTime", 0), tz=timezone.utc
+    ).strftime("%Y-%m-%dT%H:%M:%SZ")
+    rows = []
+    for sel in market.get("selections", []):
+        rows.append({
+            "event_id": event["id"],
+            "event_name": event["name"],
+            "scraped_at": scraped_at,
+            "start_time": start_dt,
+            "betting_status": event.get("bettingStatus", ""),
+            "player": sel.get("name", ""),
+            "odds": sel.get("price", {}).get("winPrice"),
+            "market_status": market.get("statusCode", ""),
+        })
+    return rows
+
+
+def _previous_brownlow_favourite(bucket: str, before_key: str, all_keys: list[str]) -> str | None:
+    for key in reversed([k for k in all_keys if k < before_key]):
+        rows = _read_jsonl(bucket, key)
+        priced = [r for r in rows if r.get("odds") is not None]
+        if not priced:
+            continue
+        return min(priced, key=lambda r: r["odds"])["player"]
+    return None
+
+
+def _check_brownlow_favourite_change(bucket: str, players: list[dict], current_key: str, all_keys: list[str]) -> None:
+    priced = [r for r in players if r.get("odds") is not None]
+    if not priced:
+        return
+    current_fav = min(priced, key=lambda r: r["odds"])["player"]
+    prev_fav = _previous_brownlow_favourite(bucket, current_key, all_keys)
+    if prev_fav is not None and current_fav != prev_fav:
+        event_name = players[0].get("event_name", "Brownlow Medal")
+        send_slack(f"{event_name} - the favourite has changed to {current_fav}", "SLACK_FAVOURITE_PARAM_NAME")
+
+
+def _scrape_brownlow(bucket: str, now: datetime, scraped_at: str) -> int:
+    print("Fetching Brownlow Medal event")
+    event = get_brownlow_event()
+    if event is None:
+        print("No Brownlow Medal event found")
+        return 0
+
+    time.sleep(DELAY_BETWEEN_REQUESTS)
+    market = get_brownlow_market(event["id"])
+    if market is None:
+        print(f"No market for Brownlow event {event['id']}")
+        return 0
+
+    players = parse_brownlow_odds(event, market, scraped_at)
+    if not players:
+        print("No Brownlow selections found")
+        return 0
+
+    jsonl_body = "\n".join(json.dumps(r) for r in players) + "\n"
+    dated_key = f"brownlow/{now.strftime('%Y/%m/%d')}/{now.strftime('%H-%M-%S')}Z.jsonl"
+    latest_key = "brownlow/latest.jsonl"
+
+    for key in (dated_key, latest_key):
+        s3.put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=jsonl_body.encode("utf-8"),
+            ContentType="application/x-ndjson",
+        )
+        print(f"Uploaded s3://{bucket}/{key}")
+
+    all_keys = _list_dated_keys(bucket, prefix="brownlow/")
+    _check_brownlow_favourite_change(bucket, players, dated_key, all_keys)
+    return len(players)
 
 
 def _check_favourite_changes(bucket: str, results: list[dict], current_key: str, all_keys: list[str]) -> None:
@@ -218,4 +313,10 @@ def _scrape(event: dict, context) -> dict:
     all_keys = _list_dated_keys(bucket)
     _check_favourite_changes(bucket, results, dated_key, all_keys)
     send_slack(f":white_check_mark: AFL odds scraped: {len(results)} games at {scraped_at}")
+
+    try:
+        _scrape_brownlow(bucket, now, scraped_at)
+    except Exception as e:
+        print(f"Brownlow scrape failed: {e}")
+
     return {"statusCode": 200, "games": len(results), "s3Key": dated_key}

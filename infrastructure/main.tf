@@ -29,6 +29,32 @@ resource "aws_s3_bucket_lifecycle_configuration" "results" {
       days = local.retention_days
     }
   }
+
+  rule {
+    id     = "expire-brownlow"
+    status = "Enabled"
+
+    filter {
+      prefix = "brownlow/"
+    }
+
+    expiration {
+      days = local.retention_days
+    }
+  }
+
+  rule {
+    id     = "expire-premiership"
+    status = "Enabled"
+
+    filter {
+      prefix = "premiership/"
+    }
+
+    expiration {
+      days = local.retention_days
+    }
+  }
 }
 
 resource "aws_iam_role" "lambda" {
@@ -57,9 +83,13 @@ resource "aws_iam_role_policy" "lambda_s3" {
     Version = "2012-10-17"
     Statement = [
       {
-        Effect   = "Allow"
-        Action   = ["s3:PutObject", "s3:GetObject"]
-        Resource = "${aws_s3_bucket.results.arn}/odds/*"
+        Effect = "Allow"
+        Action = ["s3:PutObject", "s3:GetObject"]
+        Resource = [
+          "${aws_s3_bucket.results.arn}/odds/*",
+          "${aws_s3_bucket.results.arn}/brownlow/*",
+          "${aws_s3_bucket.results.arn}/premiership/*",
+        ]
       },
       {
         Effect   = "Allow"

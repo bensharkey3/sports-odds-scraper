@@ -55,6 +55,32 @@ resource "aws_s3_bucket_lifecycle_configuration" "results" {
       days = local.retention_days
     }
   }
+
+  rule {
+    id     = "expire-rising-star"
+    status = "Enabled"
+
+    filter {
+      prefix = "rising-star/"
+    }
+
+    expiration {
+      days = local.retention_days
+    }
+  }
+
+  rule {
+    id     = "expire-coleman"
+    status = "Enabled"
+
+    filter {
+      prefix = "coleman/"
+    }
+
+    expiration {
+      days = local.retention_days
+    }
+  }
 }
 
 resource "aws_iam_role" "lambda" {
@@ -89,6 +115,8 @@ resource "aws_iam_role_policy" "lambda_s3" {
           "${aws_s3_bucket.results.arn}/odds/*",
           "${aws_s3_bucket.results.arn}/brownlow/*",
           "${aws_s3_bucket.results.arn}/premiership/*",
+          "${aws_s3_bucket.results.arn}/rising-star/*",
+          "${aws_s3_bucket.results.arn}/coleman/*",
         ]
       },
       {

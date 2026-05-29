@@ -14,6 +14,8 @@ import requests
 BASE_URL = "https://www.sportsbet.com.au/apigw/sportsbook-sports/Sportsbook/Sports"
 AFL_COMPETITION_ID = 4165
 BROWNLOW_COMPETITION_ID = 6136
+RISING_STAR_COMPETITION_ID = 27772
+COLEMAN_COMPETITION_ID = 27930
 
 HEADERS = {
     "User-Agent": (
@@ -335,6 +337,194 @@ def _scrape_premiership(bucket: str, now: datetime, scraped_at: str) -> int:
     return len(teams)
 
 
+def get_rising_star_event() -> dict | None:
+    url = f"{BASE_URL}/Competitions/{RISING_STAR_COMPETITION_ID}/Events"
+    response = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+    for e in response.json():
+        if e.get("eventSort") == "TNMT":
+            return e
+    return None
+
+
+def get_rising_star_market(event_id: int) -> dict | None:
+    url = f"{BASE_URL}/Events/{event_id}/Markets"
+    response = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+    markets = response.json()
+    return markets[0] if markets else None
+
+
+def parse_rising_star_odds(event: dict, market: dict, scraped_at: str) -> list[dict]:
+    start_dt = datetime.fromtimestamp(
+        event.get("startTime", 0), tz=timezone.utc
+    ).strftime("%Y-%m-%dT%H:%M:%SZ")
+    rows = []
+    for sel in market.get("selections", []):
+        rows.append({
+            "event_id": event["id"],
+            "event_name": event["name"],
+            "scraped_at": scraped_at,
+            "start_time": start_dt,
+            "betting_status": event.get("bettingStatus", ""),
+            "player": sel.get("name", ""),
+            "odds": sel.get("price", {}).get("winPrice"),
+            "market_status": market.get("statusCode", ""),
+        })
+    return rows
+
+
+def _previous_rising_star_favourite(bucket: str, before_key: str, all_keys: list[str]) -> str | None:
+    for key in reversed([k for k in all_keys if k < before_key]):
+        rows = _read_jsonl(bucket, key)
+        priced = [r for r in rows if r.get("odds") is not None]
+        if not priced:
+            continue
+        return min(priced, key=lambda r: r["odds"])["player"]
+    return None
+
+
+def _check_rising_star_favourite_change(bucket: str, players: list[dict], current_key: str, all_keys: list[str]) -> None:
+    priced = [r for r in players if r.get("odds") is not None]
+    if not priced:
+        return
+    current_fav = min(priced, key=lambda r: r["odds"])["player"]
+    prev_fav = _previous_rising_star_favourite(bucket, current_key, all_keys)
+    if prev_fav is not None and current_fav != prev_fav:
+        event_name = players[0].get("event_name", "AFL Rising Star")
+        send_slack(f"{event_name} - the favourite has changed to {current_fav}", "SLACK_FAVOURITE_PARAM_NAME")
+
+
+def _scrape_rising_star(bucket: str, now: datetime, scraped_at: str) -> int:
+    print("Fetching AFL Rising Star event")
+    event = get_rising_star_event()
+    if event is None:
+        print("No AFL Rising Star event found")
+        return 0
+
+    time.sleep(DELAY_BETWEEN_REQUESTS)
+    market = get_rising_star_market(event["id"])
+    if market is None:
+        print(f"No market for Rising Star event {event['id']}")
+        return 0
+
+    players = parse_rising_star_odds(event, market, scraped_at)
+    if not players:
+        print("No Rising Star selections found")
+        return 0
+
+    jsonl_body = "\n".join(json.dumps(r) for r in players) + "\n"
+    dated_key = f"rising-star/{now.strftime('%Y/%m/%d')}/{now.strftime('%H-%M-%S')}Z.jsonl"
+    latest_key = "rising-star/latest.jsonl"
+
+    for key in (dated_key, latest_key):
+        s3.put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=jsonl_body.encode("utf-8"),
+            ContentType="application/x-ndjson",
+        )
+        print(f"Uploaded s3://{bucket}/{key}")
+
+    all_keys = _list_dated_keys(bucket, prefix="rising-star/")
+    _check_rising_star_favourite_change(bucket, players, dated_key, all_keys)
+    return len(players)
+
+
+def get_coleman_event() -> dict | None:
+    url = f"{BASE_URL}/Competitions/{COLEMAN_COMPETITION_ID}/Events"
+    response = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+    for e in response.json():
+        if e.get("eventSort") == "TNMT":
+            return e
+    return None
+
+
+def get_coleman_market(event_id: int) -> dict | None:
+    url = f"{BASE_URL}/Events/{event_id}/Markets"
+    response = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+    markets = response.json()
+    return markets[0] if markets else None
+
+
+def parse_coleman_odds(event: dict, market: dict, scraped_at: str) -> list[dict]:
+    start_dt = datetime.fromtimestamp(
+        event.get("startTime", 0), tz=timezone.utc
+    ).strftime("%Y-%m-%dT%H:%M:%SZ")
+    rows = []
+    for sel in market.get("selections", []):
+        rows.append({
+            "event_id": event["id"],
+            "event_name": event["name"],
+            "scraped_at": scraped_at,
+            "start_time": start_dt,
+            "betting_status": event.get("bettingStatus", ""),
+            "player": sel.get("name", ""),
+            "odds": sel.get("price", {}).get("winPrice"),
+            "market_status": market.get("statusCode", ""),
+        })
+    return rows
+
+
+def _previous_coleman_favourite(bucket: str, before_key: str, all_keys: list[str]) -> str | None:
+    for key in reversed([k for k in all_keys if k < before_key]):
+        rows = _read_jsonl(bucket, key)
+        priced = [r for r in rows if r.get("odds") is not None]
+        if not priced:
+            continue
+        return min(priced, key=lambda r: r["odds"])["player"]
+    return None
+
+
+def _check_coleman_favourite_change(bucket: str, players: list[dict], current_key: str, all_keys: list[str]) -> None:
+    priced = [r for r in players if r.get("odds") is not None]
+    if not priced:
+        return
+    current_fav = min(priced, key=lambda r: r["odds"])["player"]
+    prev_fav = _previous_coleman_favourite(bucket, current_key, all_keys)
+    if prev_fav is not None and current_fav != prev_fav:
+        event_name = players[0].get("event_name", "AFL Coleman Medal")
+        send_slack(f"{event_name} - the favourite has changed to {current_fav}", "SLACK_FAVOURITE_PARAM_NAME")
+
+
+def _scrape_coleman(bucket: str, now: datetime, scraped_at: str) -> int:
+    print("Fetching AFL Coleman Medal event")
+    event = get_coleman_event()
+    if event is None:
+        print("No AFL Coleman Medal event found")
+        return 0
+
+    time.sleep(DELAY_BETWEEN_REQUESTS)
+    market = get_coleman_market(event["id"])
+    if market is None:
+        print(f"No market for Coleman Medal event {event['id']}")
+        return 0
+
+    players = parse_coleman_odds(event, market, scraped_at)
+    if not players:
+        print("No Coleman Medal selections found")
+        return 0
+
+    jsonl_body = "\n".join(json.dumps(r) for r in players) + "\n"
+    dated_key = f"coleman/{now.strftime('%Y/%m/%d')}/{now.strftime('%H-%M-%S')}Z.jsonl"
+    latest_key = "coleman/latest.jsonl"
+
+    for key in (dated_key, latest_key):
+        s3.put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=jsonl_body.encode("utf-8"),
+            ContentType="application/x-ndjson",
+        )
+        print(f"Uploaded s3://{bucket}/{key}")
+
+    all_keys = _list_dated_keys(bucket, prefix="coleman/")
+    _check_coleman_favourite_change(bucket, players, dated_key, all_keys)
+    return len(players)
+
+
 def _check_favourite_changes(bucket: str, results: list[dict], current_key: str, all_keys: list[str]) -> None:
     for row in results:
         if row.get("betting_status") == "OFF":
@@ -419,9 +609,22 @@ def _scrape(event: dict, context) -> dict:
     except Exception as e:
         print(f"Premiership scrape failed: {e}")
 
+    rising_star_count = 0
+    try:
+        rising_star_count = _scrape_rising_star(bucket, now, scraped_at)
+    except Exception as e:
+        print(f"Rising Star scrape failed: {e}")
+
+    coleman_count = 0
+    try:
+        coleman_count = _scrape_coleman(bucket, now, scraped_at)
+    except Exception as e:
+        print(f"Coleman scrape failed: {e}")
+
     send_slack(
         f":white_check_mark: AFL odds scraped at {scraped_at} — "
         f"{len(results)} H2H games, {brownlow_count} Brownlow players, "
-        f"{premiership_count} Premiership teams"
+        f"{premiership_count} Premiership teams, {rising_star_count} Rising Star players, "
+        f"{coleman_count} Coleman Medal players"
     )
     return {"statusCode": 200, "games": len(results), "s3Key": dated_key}

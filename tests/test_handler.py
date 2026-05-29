@@ -375,3 +375,191 @@ class TestCheckPremiershipFavouriteChange:
             handler._check_premiership_favourite_change("b", teams, CURRENT, [])
         mock_prev.assert_not_called()
         mock_slack.assert_not_called()
+
+
+# ── Rising Star helpers ───────────────────────────────────────────────────────
+
+def _rising_star_event(event_id=9863375, name="2026 AFL Rising Star", status="PRICED"):
+    return {"id": event_id, "name": name, "startTime": 1789983000, "bettingStatus": status, "eventSort": "TNMT"}
+
+
+def _rising_star_market(selections=None):
+    if selections is None:
+        selections = [
+            {"name": "Jagga Smith (R1)", "price": {"winPrice": 2.5}},
+            {"name": "Willem Duursma (R3)", "price": {"winPrice": 2.5}},
+            {"name": "Phoenix Gothard (R6)", "price": {"winPrice": 8.0}},
+        ]
+    return {"statusCode": "A", "selections": selections}
+
+
+def _rising_star_row(player, odds, event_id=9863375, event_name="2026 AFL Rising Star"):
+    return {"event_id": event_id, "event_name": event_name, "player": player, "odds": odds}
+
+
+# ── parse_rising_star_odds ────────────────────────────────────────────────────
+
+class TestParseRisingStarOdds:
+    def test_returns_one_row_per_player(self):
+        rows = handler.parse_rising_star_odds(_rising_star_event(), _rising_star_market(), "2026-05-29T10:00:00Z")
+        assert len(rows) == 3
+
+    def test_row_fields(self):
+        rows = handler.parse_rising_star_odds(_rising_star_event(), _rising_star_market(), "2026-05-29T10:00:00Z")
+        row = rows[0]
+        assert row["event_id"] == 9863375
+        assert row["event_name"] == "2026 AFL Rising Star"
+        assert row["scraped_at"] == "2026-05-29T10:00:00Z"
+        assert row["player"] == "Jagga Smith (R1)"
+        assert row["odds"] == 2.5
+        assert row["betting_status"] == "PRICED"
+        assert row["market_status"] == "A"
+
+    def test_missing_price_returns_none(self):
+        market = _rising_star_market([{"name": "Jagga Smith (R1)", "price": {}}])
+        rows = handler.parse_rising_star_odds(_rising_star_event(), market, "2026-05-29T10:00:00Z")
+        assert rows[0]["odds"] is None
+
+
+# ── _previous_rising_star_favourite ──────────────────────────────────────────
+
+class TestPreviousRisingStarFavourite:
+    def test_returns_player_with_lowest_odds(self):
+        rows = [_rising_star_row("Jagga Smith (R1)", 2.5), _rising_star_row("Phoenix Gothard (R6)", 8.0)]
+        with patch.object(handler, "_read_jsonl", return_value=rows):
+            assert handler._previous_rising_star_favourite("b", CURRENT, [PREV1]) == "Jagga Smith (R1)"
+
+    def test_returns_none_when_no_history(self):
+        assert handler._previous_rising_star_favourite("b", CURRENT, []) is None
+
+    def test_skips_files_with_no_priced_selections(self):
+        def fake_read(bucket, key):
+            if key == PREV1:
+                return [_rising_star_row("Jagga Smith (R1)", None)]
+            return [_rising_star_row("Willem Duursma (R3)", 2.5)]
+
+        with patch.object(handler, "_read_jsonl", side_effect=fake_read):
+            assert handler._previous_rising_star_favourite("b", CURRENT, [PREV2, PREV1]) == "Willem Duursma (R3)"
+
+
+# ── _check_rising_star_favourite_change ──────────────────────────────────────
+
+class TestCheckRisingStarFavouriteChange:
+    def test_sends_alert_when_favourite_flips(self):
+        players = [_rising_star_row("Jagga Smith (R1)", 2.5), _rising_star_row("Phoenix Gothard (R6)", 8.0)]
+        with patch.object(handler, "_previous_rising_star_favourite", return_value="Phoenix Gothard (R6)"), \
+             patch.object(handler, "send_slack") as mock_slack:
+            handler._check_rising_star_favourite_change("b", players, CURRENT, [])
+        mock_slack.assert_called_once_with(
+            "2026 AFL Rising Star - the favourite has changed to Jagga Smith (R1)",
+            "SLACK_FAVOURITE_PARAM_NAME",
+        )
+
+    def test_no_alert_when_favourite_unchanged(self):
+        players = [_rising_star_row("Jagga Smith (R1)", 2.5), _rising_star_row("Phoenix Gothard (R6)", 8.0)]
+        with patch.object(handler, "_previous_rising_star_favourite", return_value="Jagga Smith (R1)"), \
+             patch.object(handler, "send_slack") as mock_slack:
+            handler._check_rising_star_favourite_change("b", players, CURRENT, [])
+        mock_slack.assert_not_called()
+
+    def test_no_alert_when_all_odds_null(self):
+        players = [_rising_star_row("Jagga Smith (R1)", None)]
+        with patch.object(handler, "_previous_rising_star_favourite") as mock_prev, \
+             patch.object(handler, "send_slack") as mock_slack:
+            handler._check_rising_star_favourite_change("b", players, CURRENT, [])
+        mock_prev.assert_not_called()
+        mock_slack.assert_not_called()
+
+
+# ── Coleman Medal helpers ─────────────────────────────────────────────────────
+
+def _coleman_event(event_id=9914007, name="2026 AFL Coleman Medal", status="PRICED"):
+    return {"id": event_id, "name": name, "startTime": 1787650200, "bettingStatus": status, "eventSort": "TNMT"}
+
+
+def _coleman_market(selections=None):
+    if selections is None:
+        selections = [
+            {"name": "Ben King", "price": {"winPrice": 3.0}},
+            {"name": "Jack Gunston", "price": {"winPrice": 4.0}},
+            {"name": "Jeremy Cameron", "price": {"winPrice": 4.5}},
+        ]
+    return {"statusCode": "A", "selections": selections}
+
+
+def _coleman_row(player, odds, event_id=9914007, event_name="2026 AFL Coleman Medal"):
+    return {"event_id": event_id, "event_name": event_name, "player": player, "odds": odds}
+
+
+# ── parse_coleman_odds ────────────────────────────────────────────────────────
+
+class TestParseColemanOdds:
+    def test_returns_one_row_per_player(self):
+        rows = handler.parse_coleman_odds(_coleman_event(), _coleman_market(), "2026-05-29T10:00:00Z")
+        assert len(rows) == 3
+
+    def test_row_fields(self):
+        rows = handler.parse_coleman_odds(_coleman_event(), _coleman_market(), "2026-05-29T10:00:00Z")
+        row = rows[0]
+        assert row["event_id"] == 9914007
+        assert row["event_name"] == "2026 AFL Coleman Medal"
+        assert row["scraped_at"] == "2026-05-29T10:00:00Z"
+        assert row["player"] == "Ben King"
+        assert row["odds"] == 3.0
+        assert row["betting_status"] == "PRICED"
+        assert row["market_status"] == "A"
+
+    def test_missing_price_returns_none(self):
+        market = _coleman_market([{"name": "Ben King", "price": {}}])
+        rows = handler.parse_coleman_odds(_coleman_event(), market, "2026-05-29T10:00:00Z")
+        assert rows[0]["odds"] is None
+
+
+# ── _previous_coleman_favourite ───────────────────────────────────────────────
+
+class TestPreviousColemanFavourite:
+    def test_returns_player_with_lowest_odds(self):
+        rows = [_coleman_row("Ben King", 3.0), _coleman_row("Jack Gunston", 4.0)]
+        with patch.object(handler, "_read_jsonl", return_value=rows):
+            assert handler._previous_coleman_favourite("b", CURRENT, [PREV1]) == "Ben King"
+
+    def test_returns_none_when_no_history(self):
+        assert handler._previous_coleman_favourite("b", CURRENT, []) is None
+
+    def test_skips_files_with_no_priced_selections(self):
+        def fake_read(bucket, key):
+            if key == PREV1:
+                return [_coleman_row("Ben King", None)]
+            return [_coleman_row("Jack Gunston", 4.0)]
+
+        with patch.object(handler, "_read_jsonl", side_effect=fake_read):
+            assert handler._previous_coleman_favourite("b", CURRENT, [PREV2, PREV1]) == "Jack Gunston"
+
+
+# ── _check_coleman_favourite_change ───────────────────────────────────────────
+
+class TestCheckColemanFavouriteChange:
+    def test_sends_alert_when_favourite_flips(self):
+        players = [_coleman_row("Ben King", 3.0), _coleman_row("Jack Gunston", 4.0)]
+        with patch.object(handler, "_previous_coleman_favourite", return_value="Jack Gunston"), \
+             patch.object(handler, "send_slack") as mock_slack:
+            handler._check_coleman_favourite_change("b", players, CURRENT, [])
+        mock_slack.assert_called_once_with(
+            "2026 AFL Coleman Medal - the favourite has changed to Ben King",
+            "SLACK_FAVOURITE_PARAM_NAME",
+        )
+
+    def test_no_alert_when_favourite_unchanged(self):
+        players = [_coleman_row("Ben King", 3.0), _coleman_row("Jack Gunston", 4.0)]
+        with patch.object(handler, "_previous_coleman_favourite", return_value="Ben King"), \
+             patch.object(handler, "send_slack") as mock_slack:
+            handler._check_coleman_favourite_change("b", players, CURRENT, [])
+        mock_slack.assert_not_called()
+
+    def test_no_alert_when_all_odds_null(self):
+        players = [_coleman_row("Ben King", None)]
+        with patch.object(handler, "_previous_coleman_favourite") as mock_prev, \
+             patch.object(handler, "send_slack") as mock_slack:
+            handler._check_coleman_favourite_change("b", players, CURRENT, [])
+        mock_prev.assert_not_called()
+        mock_slack.assert_not_called()

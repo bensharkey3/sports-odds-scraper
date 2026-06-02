@@ -22,6 +22,9 @@ COLEMAN_COMPETITION_ID = 27930
 
 WORLD_CUP_COMPETITION_ID = 23109
 WORLD_CUP_EVENT_NAME = "World Cup 2026 Outrights"
+# Soccer match-result market ("Win-Draw-Win"). Unlike AFL's two-way "HH" market,
+# this has three selections (team1, Draw, team2) — the Draw is dropped during parse.
+WORLD_CUP_MATCH_MARKET_SORT = "MR"
 # Tournament finishes mid-July 2026 — stop scraping World Cup odds after this date.
 WORLD_CUP_END_DATE = date(2026, 7, 21)
 # (Sportsbet market name, S3 prefix, label used in alerts/summary)
@@ -681,6 +684,103 @@ def _check_favourite_changes(bucket: str, results: list[dict], current_key: str,
             send_slack(f"{row['match']} - the favourite has changed from {prev_fav} to {current_fav} at {current_odds}", "SLACK_FAVOURITE_PARAM_NAME")
 
 
+def get_world_cup_matches() -> list[dict]:
+    url = f"{BASE_URL}/Competitions/{WORLD_CUP_COMPETITION_ID}/Events"
+    response = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+    return [
+        e for e in response.json()
+        if e.get("eventSort") == "MTCH"
+        and e.get("participant1")
+        and e.get("participant2")
+    ]
+
+
+def get_world_cup_match_market(event_id: int) -> dict | None:
+    url = f"{BASE_URL}/Events/{event_id}/Markets"
+    response = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+    for market in response.json():
+        if market.get("marketSort") == WORLD_CUP_MATCH_MARKET_SORT:
+            return market
+    return None
+
+
+def parse_world_cup_match_odds(event: dict, market: dict) -> dict:
+    """Parse a soccer match-result market into the same row shape as AFL H2H.
+
+    The "Win-Draw-Win" market has three selections; the Draw is dropped so the
+    two teams map onto team1/team2 exactly like an AFL match.
+    """
+    start_dt = datetime.fromtimestamp(
+        event.get("startTime", 0), tz=timezone.utc
+    ).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    row = {
+        "event_id": event["id"],
+        "match": event["name"],
+        "start_time": start_dt,
+        "betting_status": event.get("bettingStatus", ""),
+        "team1": "",
+        "team1_odds": None,
+        "team2": "",
+        "team2_odds": None,
+        "market_status": market.get("statusCode", ""),
+    }
+
+    selections = sorted(
+        (s for s in market.get("selections", []) if s.get("name") != "Draw"),
+        key=lambda s: s.get("sort", 0),
+    )
+    for i, sel in enumerate(selections[:2]):
+        key = f"team{i + 1}"
+        row[key] = sel.get("name", "")
+        row[f"{key}_odds"] = sel.get("price", {}).get("winPrice")
+
+    return row
+
+
+def _scrape_world_cup_matches(bucket: str, now: datetime) -> int:
+    print("Fetching World Cup match events")
+    events = get_world_cup_matches()
+    print(f"Found {len(events)} World Cup match events")
+
+    results = []
+    for wc_event in events:
+        time.sleep(DELAY_BETWEEN_REQUESTS)
+        try:
+            market = get_world_cup_match_market(wc_event["id"])
+            if market is None:
+                print(f"No match-result market for event {wc_event['id']}")
+                continue
+            results.append(parse_world_cup_match_odds(wc_event, market))
+        except requests.HTTPError as e:
+            print(f"HTTP error for event {wc_event['id']}: {e}")
+        except Exception as e:
+            print(f"Error for event {wc_event['id']}: {e}")
+
+    if not results:
+        print("No World Cup match results — nothing uploaded")
+        return 0
+
+    jsonl_body = "\n".join(json.dumps(r) for r in results) + "\n"
+    dated_key = f"world-cup-matches/{now.strftime('%Y/%m/%d')}/{now.strftime('%H-%M-%S')}Z.jsonl"
+    latest_key = "world-cup-matches/latest.jsonl"
+
+    for key in (dated_key, latest_key):
+        s3.put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=jsonl_body.encode("utf-8"),
+            ContentType="application/x-ndjson",
+        )
+        print(f"Uploaded s3://{bucket}/{key}")
+
+    all_keys = _list_dated_keys(bucket, prefix="world-cup-matches/")
+    _check_favourite_changes(bucket, results, dated_key, all_keys)
+    return len(results)
+
+
 def s3_lambda_handler(event: dict, context) -> None:
     pass
 
@@ -765,11 +865,17 @@ def _scrape(event: dict, context) -> dict:
         print(f"Coleman scrape failed: {e}")
 
     wc_counts = {prefix: 0 for _, prefix, _ in WORLD_CUP_MARKETS}
+    wc_match_count = 0
     if now.date() <= WORLD_CUP_END_DATE:
         try:
             wc_counts = _scrape_world_cup(bucket, now, scraped_at)
         except Exception as e:
             print(f"World Cup scrape failed: {e}")
+
+        try:
+            wc_match_count = _scrape_world_cup_matches(bucket, now)
+        except Exception as e:
+            print(f"World Cup matches scrape failed: {e}")
 
     send_slack(
         f":white_check_mark: sports odds scraped at {_melbourne_timestamp(now)} — "
@@ -778,6 +884,7 @@ def _scrape(event: dict, context) -> dict:
         f"{coleman_count} Coleman Medal players, "
         f"{wc_counts['world-cup-winner']} World Cup odds, "
         f"{wc_counts['world-cup-golden-boot']} Golden Boot odds, "
-        f"{wc_counts['world-cup-golden-ball']} Golden Ball odds"
+        f"{wc_counts['world-cup-golden-ball']} Golden Ball odds, "
+        f"{wc_match_count} World Cup matches"
     )
     return {"statusCode": 200, "games": len(results), "s3Key": dated_key}

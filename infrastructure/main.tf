@@ -120,6 +120,19 @@ resource "aws_s3_bucket_lifecycle_configuration" "results" {
       days = local.retention_days
     }
   }
+
+  rule {
+    id     = "expire-world-cup-matches"
+    status = "Enabled"
+
+    filter {
+      prefix = "world-cup-matches/"
+    }
+
+    expiration {
+      days = local.retention_days
+    }
+  }
 }
 
 resource "aws_iam_role" "lambda" {
@@ -159,6 +172,7 @@ resource "aws_iam_role_policy" "lambda_s3" {
           "${aws_s3_bucket.results.arn}/world-cup-winner/*",
           "${aws_s3_bucket.results.arn}/world-cup-golden-boot/*",
           "${aws_s3_bucket.results.arn}/world-cup-golden-ball/*",
+          "${aws_s3_bucket.results.arn}/world-cup-matches/*",
         ]
       },
       {

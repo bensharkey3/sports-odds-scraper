@@ -30,7 +30,7 @@ variable "schedule_enabled" {
 
 variable "lambda_timeout" {
   type        = number
-  default     = 120
+  default     = 300
   description = "Lambda timeout in seconds"
 }
 

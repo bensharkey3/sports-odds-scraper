@@ -704,6 +704,7 @@ class TestWorldCupCutoff:
              patch.object(handler, "_scrape_world_cup", return_value={
                  "world-cup-winner": 0, "world-cup-golden-boot": 0, "world-cup-golden-ball": 0,
              }) as mock_wc, \
+             patch.object(handler, "_scrape_world_cup_matches", return_value=0), \
              patch.object(handler, "send_slack"):
             handler._scrape({}, None)
         return mock_wc
@@ -767,6 +768,134 @@ class TestScrapeWorldCupCounts:
             "world-cup-golden-boot": 0,
             "world-cup-golden-ball": 0,
         }
+
+
+# ── World Cup match helpers ───────────────────────────────────────────────────
+
+def _wc_match_event(event_id=9924150, name="Mexico v South Africa", status="PRICED"):
+    return {
+        "id": event_id, "name": name, "startTime": 1781204400,
+        "bettingStatus": status, "eventSort": "MTCH",
+        "participant1": "Mexico", "participant2": "South Africa",
+    }
+
+
+def _wc_match_market(t1="Mexico", t1p=1.36, draw=4.4, t2="South Africa", t2p=10.0):
+    # Win-Draw-Win: three selections, Draw in the middle by sort
+    return {
+        "marketSort": "MR",
+        "statusCode": "A",
+        "selections": [
+            {"sort": 10, "name": t1, "price": {"winPrice": t1p}},
+            {"sort": 20, "name": "Draw", "price": {"winPrice": draw}},
+            {"sort": 30, "name": t2, "price": {"winPrice": t2p}},
+        ],
+    }
+
+
+# ── get_world_cup_match_market ────────────────────────────────────────────────
+
+class TestGetWorldCupMatchMarket:
+    def test_returns_market_with_mr_sort(self):
+        markets = [
+            {"marketSort": "AH", "name": "Handicap"},
+            {"marketSort": "MR", "name": "Win-Draw-Win"},
+        ]
+        with patch.object(handler.requests, "get") as mock_get:
+            mock_get.return_value.json.return_value = markets
+            mock_get.return_value.raise_for_status.return_value = None
+            assert handler.get_world_cup_match_market(1)["name"] == "Win-Draw-Win"
+
+    def test_returns_none_when_no_mr_market(self):
+        with patch.object(handler.requests, "get") as mock_get:
+            mock_get.return_value.json.return_value = [{"marketSort": "AH"}]
+            mock_get.return_value.raise_for_status.return_value = None
+            assert handler.get_world_cup_match_market(1) is None
+
+
+# ── parse_world_cup_match_odds ────────────────────────────────────────────────
+
+class TestParseWorldCupMatchOdds:
+    def test_drops_draw_and_maps_two_teams(self):
+        row = handler.parse_world_cup_match_odds(_wc_match_event(), _wc_match_market())
+        assert row["team1"] == "Mexico"
+        assert row["team1_odds"] == 1.36
+        assert row["team2"] == "South Africa"
+        assert row["team2_odds"] == 10.0
+        assert "draw_odds" not in row
+
+    def test_all_fields_populated(self):
+        row = handler.parse_world_cup_match_odds(_wc_match_event(), _wc_match_market())
+        assert row["event_id"] == 9924150
+        assert row["match"] == "Mexico v South Africa"
+        assert row["betting_status"] == "PRICED"
+        assert row["market_status"] == "A"
+
+    def test_teams_ordered_by_sort_when_draw_first(self):
+        market = {
+            "marketSort": "MR",
+            "statusCode": "A",
+            "selections": [
+                {"sort": 20, "name": "Draw", "price": {"winPrice": 4.4}},
+                {"sort": 30, "name": "South Africa", "price": {"winPrice": 10.0}},
+                {"sort": 10, "name": "Mexico", "price": {"winPrice": 1.36}},
+            ],
+        }
+        row = handler.parse_world_cup_match_odds(_wc_match_event(), market)
+        assert row["team1"] == "Mexico"
+        assert row["team2"] == "South Africa"
+
+    def test_missing_price_returns_none(self):
+        market = _wc_match_market()
+        market["selections"][0]["price"] = {}
+        row = handler.parse_world_cup_match_odds(_wc_match_event(), market)
+        assert row["team1_odds"] is None
+        assert row["team2_odds"] == 10.0
+
+
+# ── _scrape_world_cup_matches ─────────────────────────────────────────────────
+
+class TestScrapeWorldCupMatches:
+    def test_returns_match_count_and_uploads(self):
+        import datetime as dtmod
+
+        now = dtmod.datetime(2026, 6, 12, 10, 0, tzinfo=dtmod.timezone.utc)
+        events = [_wc_match_event(1, "Mexico v South Africa"), _wc_match_event(2, "Brazil v Morocco")]
+        with patch.object(handler, "get_world_cup_matches", return_value=events), \
+             patch.object(handler, "get_world_cup_match_market", return_value=_wc_match_market()), \
+             patch.object(handler, "time", MagicMock()), \
+             patch.object(handler.s3, "put_object") as mock_put, \
+             patch.object(handler, "_list_dated_keys", return_value=[]), \
+             patch.object(handler, "_check_favourite_changes") as mock_check:
+            count = handler._scrape_world_cup_matches("b", now)
+        assert count == 2
+        # dated + latest key per run
+        assert mock_put.call_count == 2
+        mock_check.assert_called_once()
+
+    def test_returns_zero_when_no_events(self):
+        import datetime as dtmod
+
+        now = dtmod.datetime(2026, 6, 12, 10, 0, tzinfo=dtmod.timezone.utc)
+        with patch.object(handler, "get_world_cup_matches", return_value=[]), \
+             patch.object(handler.s3, "put_object") as mock_put:
+            count = handler._scrape_world_cup_matches("b", now)
+        assert count == 0
+        mock_put.assert_not_called()
+
+    def test_skips_events_without_market(self):
+        import datetime as dtmod
+
+        now = dtmod.datetime(2026, 6, 12, 10, 0, tzinfo=dtmod.timezone.utc)
+        events = [_wc_match_event(1), _wc_match_event(2)]
+        with patch.object(handler, "get_world_cup_matches", return_value=events), \
+             patch.object(handler, "get_world_cup_match_market", side_effect=[_wc_match_market(), None]), \
+             patch.object(handler, "time", MagicMock()), \
+             patch.object(handler.s3, "put_object"), \
+             patch.object(handler, "_list_dated_keys", return_value=[]), \
+             patch.object(handler, "_check_favourite_changes"):
+            count = handler._scrape_world_cup_matches("b", now)
+        assert count == 1
 
 
 # ── _melbourne_timestamp ──────────────────────────────────────────────────────

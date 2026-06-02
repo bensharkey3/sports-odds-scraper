@@ -215,7 +215,7 @@ def _check_brownlow_favourite_change(bucket: str, players: list[dict], current_k
     prev_fav = _previous_brownlow_favourite(bucket, current_key, all_keys)
     if prev_fav is not None and current_fav != prev_fav:
         event_name = players[0].get("event_name", "Brownlow Medal")
-        send_slack(f"{event_name} - the favourite has changed to {current_fav}", "SLACK_FAVOURITE_PARAM_NAME")
+        send_slack(f"{event_name} - the favourite has changed from {prev_fav} to {current_fav}", "SLACK_FAVOURITE_PARAM_NAME")
 
 
 def _scrape_brownlow(bucket: str, now: datetime, scraped_at: str) -> int:
@@ -309,7 +309,7 @@ def _check_premiership_favourite_change(bucket: str, teams: list[dict], current_
     prev_fav = _previous_premiership_favourite(bucket, current_key, all_keys)
     if prev_fav is not None and current_fav != prev_fav:
         event_name = teams[0].get("event_name", "AFL Premiership Winner")
-        send_slack(f"{event_name} - the favourite has changed to {current_fav}", "SLACK_FAVOURITE_PARAM_NAME")
+        send_slack(f"{event_name} - the favourite has changed from {prev_fav} to {current_fav}", "SLACK_FAVOURITE_PARAM_NAME")
 
 
 def _scrape_premiership(bucket: str, now: datetime, scraped_at: str) -> int:
@@ -403,7 +403,7 @@ def _check_rising_star_favourite_change(bucket: str, players: list[dict], curren
     prev_fav = _previous_rising_star_favourite(bucket, current_key, all_keys)
     if prev_fav is not None and current_fav != prev_fav:
         event_name = players[0].get("event_name", "AFL Rising Star")
-        send_slack(f"{event_name} - the favourite has changed to {current_fav}", "SLACK_FAVOURITE_PARAM_NAME")
+        send_slack(f"{event_name} - the favourite has changed from {prev_fav} to {current_fav}", "SLACK_FAVOURITE_PARAM_NAME")
 
 
 def _scrape_rising_star(bucket: str, now: datetime, scraped_at: str) -> int:
@@ -497,7 +497,7 @@ def _check_coleman_favourite_change(bucket: str, players: list[dict], current_ke
     prev_fav = _previous_coleman_favourite(bucket, current_key, all_keys)
     if prev_fav is not None and current_fav != prev_fav:
         event_name = players[0].get("event_name", "AFL Coleman Medal")
-        send_slack(f"{event_name} - the favourite has changed to {current_fav}", "SLACK_FAVOURITE_PARAM_NAME")
+        send_slack(f"{event_name} - the favourite has changed from {prev_fav} to {current_fav}", "SLACK_FAVOURITE_PARAM_NAME")
 
 
 def _scrape_coleman(bucket: str, now: datetime, scraped_at: str) -> int:
@@ -605,7 +605,7 @@ def _check_world_cup_favourite_change(
     current_fav = min(priced, key=lambda r: r["odds"])["selection"]
     prev_fav = _previous_world_cup_favourite(bucket, prefix, current_key, all_keys)
     if prev_fav is not None and current_fav != prev_fav:
-        send_slack(f"{label} - the favourite has changed to {current_fav}", "SLACK_FAVOURITE_PARAM_NAME")
+        send_slack(f"{label} - the favourite has changed from {prev_fav} to {current_fav}", "SLACK_FAVOURITE_PARAM_NAME")
 
 
 def _scrape_world_cup(bucket: str, now: datetime, scraped_at: str) -> int:
@@ -663,7 +663,7 @@ def _check_favourite_changes(bucket: str, results: list[dict], current_key: str,
         current_fav = row["team1"] if t1_odds < t2_odds else row["team2"]
         prev_fav = _previous_favourite(bucket, row["event_id"], current_key, all_keys)
         if prev_fav is not None and current_fav != prev_fav:
-            send_slack(f"{row['match']} - the favourite has changed to {current_fav}", "SLACK_FAVOURITE_PARAM_NAME")
+            send_slack(f"{row['match']} - the favourite has changed from {prev_fav} to {current_fav}", "SLACK_FAVOURITE_PARAM_NAME")
 
 
 def s3_lambda_handler(event: dict, context) -> None:

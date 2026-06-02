@@ -122,7 +122,7 @@ class TestCheckFavouriteChanges:
              patch.object(handler, "send_slack") as mock_slack:
             handler._check_favourite_changes("b", results, CURRENT, [])
         mock_slack.assert_called_once_with(
-            "Richmond v Carlton - the favourite has changed to Richmond",
+            "Richmond v Carlton - the favourite has changed from Carlton to Richmond",
             "SLACK_FAVOURITE_PARAM_NAME",
         )
 
@@ -249,7 +249,7 @@ class TestCheckBrownlowFavouriteChange:
              patch.object(handler, "send_slack") as mock_slack:
             handler._check_brownlow_favourite_change("b", players, CURRENT, [])
         mock_slack.assert_called_once_with(
-            "2026 AFL Brownlow Medal - the favourite has changed to Bailey Smith",
+            "2026 AFL Brownlow Medal - the favourite has changed from Nick Daicos to Bailey Smith",
             "SLACK_FAVOURITE_PARAM_NAME",
         )
 
@@ -350,7 +350,7 @@ class TestCheckPremiershipFavouriteChange:
              patch.object(handler, "send_slack") as mock_slack:
             handler._check_premiership_favourite_change("b", teams, CURRENT, [])
         mock_slack.assert_called_once_with(
-            "AFL Premiership Winner 2026 - the favourite has changed to Fremantle",
+            "AFL Premiership Winner 2026 - the favourite has changed from Geelong Cats to Fremantle",
             "SLACK_FAVOURITE_PARAM_NAME",
         )
 
@@ -451,7 +451,7 @@ class TestCheckRisingStarFavouriteChange:
              patch.object(handler, "send_slack") as mock_slack:
             handler._check_rising_star_favourite_change("b", players, CURRENT, [])
         mock_slack.assert_called_once_with(
-            "2026 AFL Rising Star - the favourite has changed to Jagga Smith (R1)",
+            "2026 AFL Rising Star - the favourite has changed from Phoenix Gothard (R6) to Jagga Smith (R1)",
             "SLACK_FAVOURITE_PARAM_NAME",
         )
 
@@ -545,7 +545,7 @@ class TestCheckColemanFavouriteChange:
              patch.object(handler, "send_slack") as mock_slack:
             handler._check_coleman_favourite_change("b", players, CURRENT, [])
         mock_slack.assert_called_once_with(
-            "2026 AFL Coleman Medal - the favourite has changed to Ben King",
+            "2026 AFL Coleman Medal - the favourite has changed from Jack Gunston to Ben King",
             "SLACK_FAVOURITE_PARAM_NAME",
         )
 
@@ -653,7 +653,7 @@ class TestCheckWorldCupFavouriteChange:
              patch.object(handler, "send_slack") as mock_slack:
             handler._check_world_cup_favourite_change("b", "world-cup-winner", rows, CURRENT, [], "World Cup Winner")
         mock_slack.assert_called_once_with(
-            "World Cup Winner - the favourite has changed to Spain",
+            "World Cup Winner - the favourite has changed from France to Spain",
             "SLACK_FAVOURITE_PARAM_NAME",
         )
 

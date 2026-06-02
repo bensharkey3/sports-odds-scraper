@@ -1,4 +1,4 @@
-# AFL Odds Scraper
+# Sports Odds Scraper
 
 Scrapes AFL odds from the Sportsbet API and writes JSONL files to S3. Runs as an AWS Lambda function on a scheduled trigger every 2 hours between 9am–9pm Melbourne time.
 
@@ -21,7 +21,7 @@ After each run it:
 
 ```
 EventBridge Scheduler (every 2hrs, 9am–9pm AEST/AEDT)
-    └── Lambda: afl-odds-scraper
+    └── Lambda: sports-odds-scraper
             ├── Sportsbet API  (fetch H2H, Brownlow, and Premiership Winner markets)
             ├── S3             (write JSONL results)
             ├── S3             (read historical files for favourite change detection)
@@ -95,8 +95,8 @@ One record per AFL team:
 
 | Channel | When | Example |
 |---------|------|---------|
-| `afl-odds-scraper` | After every successful scrape | `✅ AFL odds scraped: 8 games at 2026-05-24T09:00:00Z` |
-| `afl-odds-scraper` (favourite alerts) | When the favourite flips for any market | `Richmond v Carlton - the favourite has changed to Carlton` |
+| `sports-odds-scraper` | After every successful scrape | `✅ AFL odds scraped: 8 games at 2026-05-24T09:00:00Z` |
+| `sports-odds-scraper` (favourite alerts) | When the favourite flips for any market | `Richmond v Carlton - the favourite has changed to Carlton` |
 
 Webhook URLs are stored in AWS SSM Parameter Store as `SecureString`:
 

@@ -128,7 +128,7 @@ One record per selection (a nation for Winner, a player for Golden Boot/Ball). T
 | Channel | When | Example |
 |---------|------|---------|
 | `sports-odds-scraper` | After every successful scrape | `✅ AFL odds scraped: 8 games at 2026-05-24T09:00:00Z` |
-| `sports-odds-scraper` (favourite alerts) | When the favourite flips for any market | `Richmond v Carlton - the favourite has changed from Richmond to Carlton` |
+| `sports-odds-scraper` (favourite alerts) | When the favourite flips for any market | `Richmond v Carlton - the favourite has changed from Richmond to Carlton at 1.95` |
 
 Webhook URLs are stored in AWS SSM Parameter Store as `SecureString`:
 

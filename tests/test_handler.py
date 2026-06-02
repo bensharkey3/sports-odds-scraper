@@ -1,6 +1,6 @@
 import os
 import sys
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 import handler
@@ -563,3 +563,157 @@ class TestCheckColemanFavouriteChange:
             handler._check_coleman_favourite_change("b", players, CURRENT, [])
         mock_prev.assert_not_called()
         mock_slack.assert_not_called()
+
+
+# ── World Cup helpers ─────────────────────────────────────────────────────────
+
+def _world_cup_event(event_id=7009197, name="World Cup 2026 Outrights", status="OPEN"):
+    return {"id": event_id, "name": name, "startTime": 1782000000, "bettingStatus": status, "eventSort": "TNMT"}
+
+
+def _world_cup_market(name="Winner 2026", market_id=163808009, selections=None):
+    if selections is None:
+        selections = [
+            {"name": "Spain", "price": {"winPrice": 5.0}},
+            {"name": "France", "price": {"winPrice": 6.0}},
+            {"name": "England", "price": {"winPrice": 7.0}},
+        ]
+    return {"id": market_id, "name": name, "statusCode": "A", "selections": selections}
+
+
+def _wc_row(selection, odds, market_name="Winner 2026"):
+    return {"selection": selection, "odds": odds, "market_name": market_name}
+
+
+# ── parse_world_cup_odds ──────────────────────────────────────────────────────
+
+class TestParseWorldCupOdds:
+    def test_returns_one_row_per_selection(self):
+        rows = handler.parse_world_cup_odds(_world_cup_event(), _world_cup_market(), "2026-06-02T10:00:00Z")
+        assert len(rows) == 3
+
+    def test_row_fields(self):
+        rows = handler.parse_world_cup_odds(_world_cup_event(), _world_cup_market(), "2026-06-02T10:00:00Z")
+        row = rows[0]
+        assert row["event_id"] == 7009197
+        assert row["event_name"] == "World Cup 2026 Outrights"
+        assert row["market_id"] == 163808009
+        assert row["market_name"] == "Winner 2026"
+        assert row["scraped_at"] == "2026-06-02T10:00:00Z"
+        assert row["selection"] == "Spain"
+        assert row["odds"] == 5.0
+        assert row["betting_status"] == "OPEN"
+        assert row["market_status"] == "A"
+
+    def test_missing_price_returns_none(self):
+        market = _world_cup_market(selections=[{"name": "Spain", "price": {}}])
+        rows = handler.parse_world_cup_odds(_world_cup_event(), market, "2026-06-02T10:00:00Z")
+        assert rows[0]["odds"] is None
+
+
+# ── find_market ───────────────────────────────────────────────────────────────
+
+class TestFindMarket:
+    def test_returns_market_with_matching_name(self):
+        markets = [_world_cup_market("Winner 2026"), _world_cup_market("Golden Boot Winner")]
+        assert handler.find_market(markets, "Golden Boot Winner")["name"] == "Golden Boot Winner"
+
+    def test_returns_none_when_absent(self):
+        markets = [_world_cup_market("Winner 2026")]
+        assert handler.find_market(markets, "Golden Ball Winner") is None
+
+
+# ── _previous_world_cup_favourite ─────────────────────────────────────────────
+
+class TestPreviousWorldCupFavourite:
+    def test_returns_selection_with_lowest_odds(self):
+        rows = [_wc_row("Spain", 5.0), _wc_row("France", 6.0)]
+        with patch.object(handler, "_read_jsonl", return_value=rows):
+            assert handler._previous_world_cup_favourite("b", "world-cup-winner", CURRENT, [PREV1]) == "Spain"
+
+    def test_returns_none_when_no_history(self):
+        assert handler._previous_world_cup_favourite("b", "world-cup-winner", CURRENT, []) is None
+
+    def test_skips_files_with_no_priced_selections(self):
+        def fake_read(bucket, key):
+            if key == PREV1:
+                return [_wc_row("Spain", None)]
+            return [_wc_row("France", 6.0)]
+
+        with patch.object(handler, "_read_jsonl", side_effect=fake_read):
+            assert handler._previous_world_cup_favourite("b", "world-cup-winner", CURRENT, [PREV2, PREV1]) == "France"
+
+
+# ── _check_world_cup_favourite_change ─────────────────────────────────────────
+
+class TestCheckWorldCupFavouriteChange:
+    def test_sends_alert_when_favourite_flips(self):
+        rows = [_wc_row("Spain", 5.0), _wc_row("France", 6.0)]
+        with patch.object(handler, "_previous_world_cup_favourite", return_value="France"), \
+             patch.object(handler, "send_slack") as mock_slack:
+            handler._check_world_cup_favourite_change("b", "world-cup-winner", rows, CURRENT, [], "World Cup Winner")
+        mock_slack.assert_called_once_with(
+            "World Cup Winner - the favourite has changed to Spain",
+            "SLACK_FAVOURITE_PARAM_NAME",
+        )
+
+    def test_no_alert_when_favourite_unchanged(self):
+        rows = [_wc_row("Spain", 5.0), _wc_row("France", 6.0)]
+        with patch.object(handler, "_previous_world_cup_favourite", return_value="Spain"), \
+             patch.object(handler, "send_slack") as mock_slack:
+            handler._check_world_cup_favourite_change("b", "world-cup-winner", rows, CURRENT, [], "World Cup Winner")
+        mock_slack.assert_not_called()
+
+    def test_no_alert_when_no_previous_data(self):
+        rows = [_wc_row("Spain", 5.0)]
+        with patch.object(handler, "_previous_world_cup_favourite", return_value=None), \
+             patch.object(handler, "send_slack") as mock_slack:
+            handler._check_world_cup_favourite_change("b", "world-cup-winner", rows, CURRENT, [], "World Cup Winner")
+        mock_slack.assert_not_called()
+
+    def test_no_alert_when_all_odds_null(self):
+        rows = [_wc_row("Spain", None)]
+        with patch.object(handler, "_previous_world_cup_favourite") as mock_prev, \
+             patch.object(handler, "send_slack") as mock_slack:
+            handler._check_world_cup_favourite_change("b", "world-cup-winner", rows, CURRENT, [], "World Cup Winner")
+        mock_prev.assert_not_called()
+        mock_slack.assert_not_called()
+
+
+# ── World Cup end-date cutoff in _scrape ──────────────────────────────────────
+
+class TestWorldCupCutoff:
+    def _run_scrape_at(self, when):
+        import datetime as dtmod
+
+        fake_dt = MagicMock()
+        fake_dt.now.return_value = when
+        fake_dt.fromtimestamp.side_effect = dtmod.datetime.fromtimestamp
+        with patch.object(handler, "datetime", fake_dt), \
+             patch.dict(os.environ, {"RESULTS_BUCKET": "b"}), \
+             patch.object(handler, "time", MagicMock()), \
+             patch.object(handler, "get_afl_events", return_value=[_event()]), \
+             patch.object(handler, "get_h2h_market", return_value=_market()), \
+             patch.object(handler.s3, "put_object"), \
+             patch.object(handler, "_list_dated_keys", return_value=[]), \
+             patch.object(handler, "_check_favourite_changes"), \
+             patch.object(handler, "_scrape_brownlow", return_value=0), \
+             patch.object(handler, "_scrape_premiership", return_value=0), \
+             patch.object(handler, "_scrape_rising_star", return_value=0), \
+             patch.object(handler, "_scrape_coleman", return_value=0), \
+             patch.object(handler, "_scrape_world_cup", return_value=5) as mock_wc, \
+             patch.object(handler, "send_slack"):
+            handler._scrape({}, None)
+        return mock_wc
+
+    def test_world_cup_scraped_on_cutoff_date(self):
+        import datetime as dtmod
+
+        when = dtmod.datetime(2026, 7, 21, 10, 0, tzinfo=dtmod.timezone.utc)
+        assert self._run_scrape_at(when).called
+
+    def test_world_cup_skipped_after_cutoff(self):
+        import datetime as dtmod
+
+        when = dtmod.datetime(2026, 7, 22, 10, 0, tzinfo=dtmod.timezone.utc)
+        self._run_scrape_at(when).assert_not_called()

@@ -6,7 +6,7 @@ Fetches odds from Sportsbet and writes JSONL to S3.
 import json
 import os
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import boto3
 import requests
@@ -16,6 +16,17 @@ AFL_COMPETITION_ID = 4165
 BROWNLOW_COMPETITION_ID = 6136
 RISING_STAR_COMPETITION_ID = 27772
 COLEMAN_COMPETITION_ID = 27930
+
+WORLD_CUP_COMPETITION_ID = 23109
+WORLD_CUP_EVENT_NAME = "World Cup 2026 Outrights"
+# Tournament finishes mid-July 2026 — stop scraping World Cup odds after this date.
+WORLD_CUP_END_DATE = date(2026, 7, 21)
+# (Sportsbet market name, S3 prefix, label used in alerts/summary)
+WORLD_CUP_MARKETS = [
+    ("Winner 2026", "world-cup-winner", "World Cup Winner"),
+    ("Golden Boot Winner", "world-cup-golden-boot", "World Cup Golden Boot"),
+    ("Golden Ball Winner", "world-cup-golden-ball", "World Cup Golden Ball"),
+]
 
 HEADERS = {
     "User-Agent": (
@@ -525,6 +536,123 @@ def _scrape_coleman(bucket: str, now: datetime, scraped_at: str) -> int:
     return len(players)
 
 
+def get_world_cup_event() -> dict | None:
+    url = f"{BASE_URL}/Competitions/{WORLD_CUP_COMPETITION_ID}/Events"
+    response = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+    events = response.json()
+    for e in events:
+        if e.get("name") == WORLD_CUP_EVENT_NAME:
+            return e
+    # Fallback: the outrights tournament event if the exact name changes slightly
+    for e in events:
+        if e.get("eventSort") == "TNMT" and "Outrights" in e.get("name", ""):
+            return e
+    return None
+
+
+def get_world_cup_markets(event_id: int) -> list[dict]:
+    url = f"{BASE_URL}/Events/{event_id}/Markets"
+    response = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+    return response.json()
+
+
+def find_market(markets: list[dict], name: str) -> dict | None:
+    for market in markets:
+        if market.get("name") == name:
+            return market
+    return None
+
+
+def parse_world_cup_odds(event: dict, market: dict, scraped_at: str) -> list[dict]:
+    start_dt = datetime.fromtimestamp(
+        event.get("startTime", 0), tz=timezone.utc
+    ).strftime("%Y-%m-%dT%H:%M:%SZ")
+    rows = []
+    for sel in market.get("selections", []):
+        rows.append({
+            "event_id": event["id"],
+            "event_name": event["name"],
+            "market_id": market.get("id"),
+            "market_name": market.get("name", ""),
+            "scraped_at": scraped_at,
+            "start_time": start_dt,
+            "betting_status": event.get("bettingStatus", ""),
+            "selection": sel.get("name", ""),
+            "odds": sel.get("price", {}).get("winPrice"),
+            "market_status": market.get("statusCode", ""),
+        })
+    return rows
+
+
+def _previous_world_cup_favourite(bucket: str, prefix: str, before_key: str, all_keys: list[str]) -> str | None:
+    for key in reversed([k for k in all_keys if k < before_key]):
+        rows = _read_jsonl(bucket, key)
+        priced = [r for r in rows if r.get("odds") is not None]
+        if not priced:
+            continue
+        return min(priced, key=lambda r: r["odds"])["selection"]
+    return None
+
+
+def _check_world_cup_favourite_change(
+    bucket: str, prefix: str, rows: list[dict], current_key: str, all_keys: list[str], label: str
+) -> None:
+    priced = [r for r in rows if r.get("odds") is not None]
+    if not priced:
+        return
+    current_fav = min(priced, key=lambda r: r["odds"])["selection"]
+    prev_fav = _previous_world_cup_favourite(bucket, prefix, current_key, all_keys)
+    if prev_fav is not None and current_fav != prev_fav:
+        send_slack(f"{label} - the favourite has changed to {current_fav}", "SLACK_FAVOURITE_PARAM_NAME")
+
+
+def _scrape_world_cup(bucket: str, now: datetime, scraped_at: str) -> int:
+    print("Fetching World Cup outrights event")
+    event = get_world_cup_event()
+    if event is None:
+        print("No World Cup outrights event found")
+        return 0
+
+    time.sleep(DELAY_BETWEEN_REQUESTS)
+    markets = get_world_cup_markets(event["id"])
+    if not markets:
+        print(f"No markets for World Cup event {event['id']}")
+        return 0
+
+    total = 0
+    for market_name, prefix, label in WORLD_CUP_MARKETS:
+        market = find_market(markets, market_name)
+        if market is None:
+            print(f"No '{market_name}' market for World Cup event {event['id']}")
+            continue
+
+        rows = parse_world_cup_odds(event, market, scraped_at)
+        if not rows:
+            print(f"No selections for '{market_name}'")
+            continue
+
+        jsonl_body = "\n".join(json.dumps(r) for r in rows) + "\n"
+        dated_key = f"{prefix}/{now.strftime('%Y/%m/%d')}/{now.strftime('%H-%M-%S')}Z.jsonl"
+        latest_key = f"{prefix}/latest.jsonl"
+
+        for key in (dated_key, latest_key):
+            s3.put_object(
+                Bucket=bucket,
+                Key=key,
+                Body=jsonl_body.encode("utf-8"),
+                ContentType="application/x-ndjson",
+            )
+            print(f"Uploaded s3://{bucket}/{key}")
+
+        all_keys = _list_dated_keys(bucket, prefix=f"{prefix}/")
+        _check_world_cup_favourite_change(bucket, prefix, rows, dated_key, all_keys, label)
+        total += len(rows)
+
+    return total
+
+
 def _check_favourite_changes(bucket: str, results: list[dict], current_key: str, all_keys: list[str]) -> None:
     for row in results:
         if row.get("betting_status") == "OFF":
@@ -621,10 +749,17 @@ def _scrape(event: dict, context) -> dict:
     except Exception as e:
         print(f"Coleman scrape failed: {e}")
 
+    world_cup_count = 0
+    if now.date() <= WORLD_CUP_END_DATE:
+        try:
+            world_cup_count = _scrape_world_cup(bucket, now, scraped_at)
+        except Exception as e:
+            print(f"World Cup scrape failed: {e}")
+
     send_slack(
         f":white_check_mark: AFL odds scraped at {scraped_at} — "
         f"{len(results)} H2H games, {brownlow_count} Brownlow players, "
         f"{premiership_count} Premiership teams, {rising_star_count} Rising Star players, "
-        f"{coleman_count} Coleman Medal players"
+        f"{coleman_count} Coleman Medal players, {world_cup_count} World Cup selections"
     )
     return {"statusCode": 200, "games": len(results), "s3Key": dated_key}

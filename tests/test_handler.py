@@ -701,7 +701,9 @@ class TestWorldCupCutoff:
              patch.object(handler, "_scrape_premiership", return_value=0), \
              patch.object(handler, "_scrape_rising_star", return_value=0), \
              patch.object(handler, "_scrape_coleman", return_value=0), \
-             patch.object(handler, "_scrape_world_cup", return_value=5) as mock_wc, \
+             patch.object(handler, "_scrape_world_cup", return_value={
+                 "world-cup-winner": 0, "world-cup-golden-boot": 0, "world-cup-golden-ball": 0,
+             }) as mock_wc, \
              patch.object(handler, "send_slack"):
             handler._scrape({}, None)
         return mock_wc
@@ -717,3 +719,69 @@ class TestWorldCupCutoff:
 
         when = dtmod.datetime(2026, 7, 22, 10, 0, tzinfo=dtmod.timezone.utc)
         self._run_scrape_at(when).assert_not_called()
+
+
+# ── _scrape_world_cup per-market counts ───────────────────────────────────────
+
+class TestScrapeWorldCupCounts:
+    def test_returns_count_per_market(self):
+        import datetime as dtmod
+
+        event = _world_cup_event()
+        markets = [
+            _world_cup_market("Winner 2026", selections=[
+                {"name": "Spain", "price": {"winPrice": 5.0}},
+            ]),
+            _world_cup_market("Golden Boot Winner", selections=[
+                {"name": "Kylian Mbappe", "price": {"winPrice": 6.5}},
+                {"name": "Harry Kane", "price": {"winPrice": 8.0}},
+            ]),
+            _world_cup_market("Golden Ball Winner", selections=[
+                {"name": "Michael Olise", "price": {"winPrice": 7.0}},
+                {"name": "Jude Bellingham", "price": {"winPrice": 9.0}},
+                {"name": "Vinicius Jr", "price": {"winPrice": 10.0}},
+            ]),
+        ]
+        now = dtmod.datetime(2026, 6, 2, 10, 0, tzinfo=dtmod.timezone.utc)
+        with patch.object(handler, "get_world_cup_event", return_value=event), \
+             patch.object(handler, "get_world_cup_markets", return_value=markets), \
+             patch.object(handler, "time", MagicMock()), \
+             patch.object(handler.s3, "put_object"), \
+             patch.object(handler, "_list_dated_keys", return_value=[]), \
+             patch.object(handler, "_check_world_cup_favourite_change"):
+            counts = handler._scrape_world_cup("b", now, "2026-06-02T10:00:00Z")
+        assert counts == {
+            "world-cup-winner": 1,
+            "world-cup-golden-boot": 2,
+            "world-cup-golden-ball": 3,
+        }
+
+    def test_returns_zeroed_counts_when_no_event(self):
+        import datetime as dtmod
+
+        now = dtmod.datetime(2026, 6, 2, 10, 0, tzinfo=dtmod.timezone.utc)
+        with patch.object(handler, "get_world_cup_event", return_value=None):
+            counts = handler._scrape_world_cup("b", now, "2026-06-02T10:00:00Z")
+        assert counts == {
+            "world-cup-winner": 0,
+            "world-cup-golden-boot": 0,
+            "world-cup-golden-ball": 0,
+        }
+
+
+# ── _melbourne_timestamp ──────────────────────────────────────────────────────
+
+class TestMelbourneTimestamp:
+    def test_formats_winter_as_aest(self):
+        import datetime as dtmod
+
+        # 02:00 UTC in June → 12:00 AEST (UTC+10)
+        now = dtmod.datetime(2026, 6, 2, 2, 0, 0, tzinfo=dtmod.timezone.utc)
+        assert handler._melbourne_timestamp(now) == "2026-06-02 12:00:00 AEST"
+
+    def test_formats_summer_as_aedt(self):
+        import datetime as dtmod
+
+        # 02:00 UTC in January → 13:00 AEDT (UTC+11, daylight saving)
+        now = dtmod.datetime(2026, 1, 15, 2, 0, 0, tzinfo=dtmod.timezone.utc)
+        assert handler._melbourne_timestamp(now) == "2026-01-15 13:00:00 AEDT"

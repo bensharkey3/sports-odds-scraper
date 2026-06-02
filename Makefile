@@ -72,7 +72,7 @@ destroy:
 # ── Invoke manually ───────────────────────────────────────────────────────────
 invoke:
 	aws lambda invoke \
-		--function-name afl-odds-scraper-$(ENV) \
+		--function-name sports-odds-scraper-$(ENV) \
 		--region $(REGION) \
 		--log-type Tail \
 		--query "LogResult" \
@@ -84,4 +84,4 @@ invoke:
 
 # ── Logs ─────────────────────────────────────────────────────────────────────
 logs:
-	aws logs tail /aws/lambda/afl-odds-scraper-$(ENV) --follow --region $(REGION)
+	aws logs tail /aws/lambda/sports-odds-scraper-$(ENV) --follow --region $(REGION)

@@ -10,7 +10,7 @@ resource "aws_s3_bucket" "results" {
 
   tags = {
     Environment = var.environment
-    Project     = "afl-odds-scraper"
+    Project     = "sports-odds-scraper"
   }
 }
 
@@ -143,7 +143,7 @@ resource "aws_iam_role_policy" "lambda_ssm" {
 }
 
 resource "aws_lambda_function" "scraper" {
-  function_name = "afl-odds-scraper-${var.environment}"
+  function_name = "sports-odds-scraper-${var.environment}"
   description   = "Fetches AFL H2H odds from Sportsbet and writes JSONL to S3"
   role          = aws_iam_role.lambda.arn
   handler       = "handler.lambda_handler"
@@ -164,7 +164,7 @@ resource "aws_lambda_function" "scraper" {
 
   tags = {
     Environment = var.environment
-    Project     = "afl-odds-scraper"
+    Project     = "sports-odds-scraper"
   }
 }
 
@@ -219,7 +219,7 @@ resource "aws_lambda_function" "s3_notifier" {
 
   tags = {
     Environment = var.environment
-    Project     = "afl-odds-scraper"
+    Project     = "sports-odds-scraper"
   }
 }
 

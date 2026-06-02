@@ -123,7 +123,7 @@ jobs:
       - name: Update Lambda code
         run: |
           aws lambda update-function-code \
-            --function-name afl-odds-scraper-dev \
+            --function-name sports-odds-scraper-dev \
             --s3-bucket ${{ env.ARTIFACT_BUCKET }} \
             --s3-key ${{ env.ARTIFACT_KEY }} \
             --region ${{ env.AWS_DEFAULT_REGION }}
@@ -192,7 +192,7 @@ jobs:
       - name: Update Lambda code
         run: |
           aws lambda update-function-code \
-            --function-name afl-odds-scraper-prod \
+            --function-name sports-odds-scraper-prod \
             --s3-bucket ${{ env.ARTIFACT_BUCKET }} \
             --s3-key ${{ env.ARTIFACT_KEY }} \
             --region ${{ env.AWS_DEFAULT_REGION }}

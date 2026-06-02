@@ -16,6 +16,7 @@ Each run scrapes the following markets:
 | **World Cup Winner** | Winner odds for every nation in the FIFA World Cup 2026 |
 | **World Cup Golden Boot** | Top-scorer odds for every Golden Boot candidate |
 | **World Cup Golden Ball** | Player-of-the-tournament odds for every Golden Ball candidate |
+| **World Cup match odds** | Head-to-head odds for all upcoming World Cup matches (the draw is dropped) |
 
 World Cup markets are only scraped up to and including **21 July 2026** (the tournament ends mid-July); after that date the AFL markets continue and the World Cup scrape is skipped.
 
@@ -29,7 +30,7 @@ After each run it:
 ```
 EventBridge Scheduler (hourly, 24/7, AEST/AEDT)
     └── Lambda: sports-odds-scraper
-            ├── Sportsbet API  (fetch AFL H2H, Brownlow, Premiership, Rising Star, Coleman + World Cup Winner/Golden Boot/Golden Ball markets)
+            ├── Sportsbet API  (fetch AFL H2H, Brownlow, Premiership, Rising Star, Coleman + World Cup Winner/Golden Boot/Golden Ball + World Cup match markets)
             ├── S3             (write JSONL results)
             ├── S3             (read historical files for favourite change detection)
             ├── SSM            (fetch Slack webhook URLs)
@@ -123,11 +124,31 @@ One record per selection (a nation for Winner, a player for Golden Boot/Ball). T
 }
 ```
 
+### World Cup match odds
+
+S3 paths: `world-cup-matches/YYYY/MM/DD/HH-MM-SSZ.jsonl` (timestamped) and `world-cup-matches/latest.jsonl`
+
+Soccer's match-result market is the three-way "Win-Draw-Win"; the draw selection is dropped so each record matches the AFL H2H shape. The scraper picks up whatever matches currently have priced markets, so the set grows as knockout-stage fixtures become known. One record per match:
+
+```json
+{
+  "event_id": 9924150,
+  "match": "Mexico v South Africa",
+  "start_time": "2026-06-11T20:00:00Z",
+  "betting_status": "PRICED",
+  "team1": "Mexico",
+  "team1_odds": 1.36,
+  "team2": "South Africa",
+  "team2_odds": 10.0,
+  "market_status": "A"
+}
+```
+
 ## Slack notifications
 
 | Channel | When | Example |
 |---------|------|---------|
-| `sports-odds-scraper` | After every successful scrape | `✅ sports odds scraped at 2026-06-02 12:00:00 AEST — 8 AFL games, 38 Brownlow players, 18 Premiership teams, 30 Rising Star players, 25 Coleman Medal players, 48 World Cup odds, 144 Golden Boot odds, 59 Golden Ball odds` |
+| `sports-odds-scraper` | After every successful scrape | `✅ sports odds scraped at 2026-06-02 12:00:00 AEST — 8 AFL games, 38 Brownlow players, 18 Premiership teams, 30 Rising Star players, 25 Coleman Medal players, 48 World Cup odds, 144 Golden Boot odds, 59 Golden Ball odds, 12 World Cup matches` |
 | `sports-odds-scraper` (favourite alerts) | When the favourite flips for any market | `Richmond v Carlton - the favourite has changed from Richmond to Carlton at 1.95` |
 
 Webhook URLs are stored in AWS SSM Parameter Store as `SecureString`:

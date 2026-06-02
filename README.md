@@ -1,16 +1,23 @@
 # Sports Odds Scraper
 
-Scrapes AFL odds from the Sportsbet API and writes JSONL files to S3. Runs as an AWS Lambda function on a scheduled trigger every 2 hours between 9am–9pm Melbourne time.
+Scrapes AFL and FIFA World Cup 2026 odds from the Sportsbet API and writes JSONL files to S3. Runs as an AWS Lambda function on a scheduled trigger every hour, 24 hours a day (Melbourne time).
 
 ## What it does
 
-Each run scrapes three markets:
+Each run scrapes the following markets:
 
 | Market | Description |
 |--------|-------------|
 | **H2H match odds** | Head-to-head odds for all upcoming AFL matches |
 | **Brownlow Medal** | Winner odds for every Brownlow Medal candidate |
 | **Premiership Winner** | Winner odds for all 18 AFL teams to win the premiership |
+| **Rising Star** | Winner odds for every AFL Rising Star candidate |
+| **Coleman Medal** | Winner odds for every AFL Coleman Medal candidate |
+| **World Cup Winner** | Winner odds for every nation in the FIFA World Cup 2026 |
+| **World Cup Golden Boot** | Top-scorer odds for every Golden Boot candidate |
+| **World Cup Golden Ball** | Player-of-the-tournament odds for every Golden Ball candidate |
+
+World Cup markets are only scraped up to and including **21 July 2026** (the tournament ends mid-July); after that date the AFL markets continue and the World Cup scrape is skipped.
 
 After each run it:
 - Writes JSONL results to S3 (timestamped + latest)
@@ -20,9 +27,9 @@ After each run it:
 ## Architecture
 
 ```
-EventBridge Scheduler (every 2hrs, 9am–9pm AEST/AEDT)
+EventBridge Scheduler (hourly, 24/7, AEST/AEDT)
     └── Lambda: sports-odds-scraper
-            ├── Sportsbet API  (fetch H2H, Brownlow, and Premiership Winner markets)
+            ├── Sportsbet API  (fetch AFL H2H, Brownlow, Premiership, Rising Star, Coleman + World Cup Winner/Golden Boot/Golden Ball markets)
             ├── S3             (write JSONL results)
             ├── S3             (read historical files for favourite change detection)
             ├── SSM            (fetch Slack webhook URLs)
@@ -86,6 +93,31 @@ One record per AFL team:
   "start_time": "2026-09-26T09:30:00Z",
   "betting_status": "PRICED",
   "team": "Fremantle",
+  "odds": 5.5,
+  "market_status": "A"
+}
+```
+
+### World Cup (Winner / Golden Boot / Golden Ball)
+
+The three World Cup awards are separate named markets within the single "World Cup 2026 Outrights" event, each written to its own prefix:
+
+- `world-cup-winner/YYYY/MM/DD/HH-MM-SSZ.jsonl` and `world-cup-winner/latest.jsonl`
+- `world-cup-golden-boot/…`
+- `world-cup-golden-ball/…`
+
+One record per selection (a nation for Winner, a player for Golden Boot/Ball). The generic `selection` field holds the entrant name:
+
+```json
+{
+  "event_id": 7009197,
+  "event_name": "World Cup 2026 Outrights",
+  "market_id": 163808009,
+  "market_name": "Winner 2026",
+  "scraped_at": "2026-06-02T10:00:00Z",
+  "start_time": "2026-07-19T22:01:00Z",
+  "betting_status": "PRICED",
+  "selection": "Spain",
   "odds": 5.5,
   "market_status": "A"
 }

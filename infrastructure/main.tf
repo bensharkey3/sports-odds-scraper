@@ -81,6 +81,45 @@ resource "aws_s3_bucket_lifecycle_configuration" "results" {
       days = local.retention_days
     }
   }
+
+  rule {
+    id     = "expire-world-cup-winner"
+    status = "Enabled"
+
+    filter {
+      prefix = "world-cup-winner/"
+    }
+
+    expiration {
+      days = local.retention_days
+    }
+  }
+
+  rule {
+    id     = "expire-world-cup-golden-boot"
+    status = "Enabled"
+
+    filter {
+      prefix = "world-cup-golden-boot/"
+    }
+
+    expiration {
+      days = local.retention_days
+    }
+  }
+
+  rule {
+    id     = "expire-world-cup-golden-ball"
+    status = "Enabled"
+
+    filter {
+      prefix = "world-cup-golden-ball/"
+    }
+
+    expiration {
+      days = local.retention_days
+    }
+  }
 }
 
 resource "aws_iam_role" "lambda" {
@@ -117,6 +156,9 @@ resource "aws_iam_role_policy" "lambda_s3" {
           "${aws_s3_bucket.results.arn}/premiership/*",
           "${aws_s3_bucket.results.arn}/rising-star/*",
           "${aws_s3_bucket.results.arn}/coleman/*",
+          "${aws_s3_bucket.results.arn}/world-cup-winner/*",
+          "${aws_s3_bucket.results.arn}/world-cup-golden-boot/*",
+          "${aws_s3_bucket.results.arn}/world-cup-golden-ball/*",
         ]
       },
       {
@@ -155,9 +197,9 @@ resource "aws_lambda_function" "scraper" {
 
   environment {
     variables = {
-      RESULTS_BUCKET          = aws_s3_bucket.results.bucket
-      ENVIRONMENT             = var.environment
-      SLACK_PARAM_NAME        = "/afl-odds/slack-webhook"
+      RESULTS_BUCKET             = aws_s3_bucket.results.bucket
+      ENVIRONMENT                = var.environment
+      SLACK_PARAM_NAME           = "/afl-odds/slack-webhook"
       SLACK_FAVOURITE_PARAM_NAME = "/afl-odds/slack-webhook-favourite"
     }
   }
@@ -270,7 +312,7 @@ resource "aws_iam_role_policy" "scheduler_invoke" {
   })
 }
 
-# Every 2 hours, 9am–9pm Melbourne time — DST-aware via Australia/Melbourne timezone
+# On the hour, every hour, 24/7 — DST-aware via Australia/Melbourne timezone
 resource "aws_scheduler_schedule" "scraper" {
   name  = "afl-odds-schedule-${var.environment}"
   state = var.schedule_enabled
@@ -279,7 +321,7 @@ resource "aws_scheduler_schedule" "scraper" {
     mode = "OFF"
   }
 
-  schedule_expression          = "cron(0 9,11,13,15,17,19,21 * * ? *)"
+  schedule_expression          = "cron(0 * * * ? *)"
   schedule_expression_timezone = "Australia/Melbourne"
 
   target {

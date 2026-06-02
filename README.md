@@ -128,7 +128,7 @@ One record per selection (a nation for Winner, a player for Golden Boot/Ball). T
 | Channel | When | Example |
 |---------|------|---------|
 | `sports-odds-scraper` | After every successful scrape | `✅ sports odds scraped at 2026-06-02 12:00:00 AEST — 8 AFL games, 38 Brownlow players, 18 Premiership teams, 30 Rising Star players, 25 Coleman Medal players, 48 World Cup odds, 144 Golden Boot odds, 59 Golden Ball odds` |
-| `sports-odds-scraper` (favourite alerts) | When the favourite flips for any market | `Richmond v Carlton - the favourite has changed to Carlton` |
+| `sports-odds-scraper` (favourite alerts) | When the favourite flips for any market | `Richmond v Carlton - the favourite has changed from Richmond to Carlton at 1.95` |
 
 Webhook URLs are stored in AWS SSM Parameter Store as `SecureString`:
 

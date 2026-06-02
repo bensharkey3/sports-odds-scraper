@@ -7,9 +7,12 @@ import json
 import os
 import time
 from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 
 import boto3
 import requests
+
+MELBOURNE_TZ = ZoneInfo("Australia/Melbourne")
 
 BASE_URL = "https://www.sportsbet.com.au/apigw/sportsbook-sports/Sportsbook/Sports"
 AFL_COMPETITION_ID = 4165
@@ -72,6 +75,11 @@ def send_slack(message: str, param_env_var: str = "SLACK_PARAM_NAME") -> None:
         requests.post(url, json={"text": message}, timeout=5)
     except Exception as e:
         print(f"Failed to send Slack notification: {e}")
+
+
+def _melbourne_timestamp(now: datetime) -> str:
+    """Format a UTC datetime as a Melbourne local timestamp to the second (DST-aware)."""
+    return now.astimezone(MELBOURNE_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
 
 
 def get_afl_events() -> list[dict]:
@@ -613,20 +621,21 @@ def _check_world_cup_favourite_change(
         send_slack(f"{label} - the favourite has changed from {prev_fav} to {current_fav} at {fav['odds']}", "SLACK_FAVOURITE_PARAM_NAME")
 
 
-def _scrape_world_cup(bucket: str, now: datetime, scraped_at: str) -> int:
+def _scrape_world_cup(bucket: str, now: datetime, scraped_at: str) -> dict[str, int]:
+    counts = {prefix: 0 for _, prefix, _ in WORLD_CUP_MARKETS}
+
     print("Fetching World Cup outrights event")
     event = get_world_cup_event()
     if event is None:
         print("No World Cup outrights event found")
-        return 0
+        return counts
 
     time.sleep(DELAY_BETWEEN_REQUESTS)
     markets = get_world_cup_markets(event["id"])
     if not markets:
         print(f"No markets for World Cup event {event['id']}")
-        return 0
+        return counts
 
-    total = 0
     for market_name, prefix, label in WORLD_CUP_MARKETS:
         market = find_market(markets, market_name)
         if market is None:
@@ -653,9 +662,9 @@ def _scrape_world_cup(bucket: str, now: datetime, scraped_at: str) -> int:
 
         all_keys = _list_dated_keys(bucket, prefix=f"{prefix}/")
         _check_world_cup_favourite_change(bucket, prefix, rows, dated_key, all_keys, label)
-        total += len(rows)
+        counts[prefix] = len(rows)
 
-    return total
+    return counts
 
 
 def _check_favourite_changes(bucket: str, results: list[dict], current_key: str, all_keys: list[str]) -> None:
@@ -755,17 +764,20 @@ def _scrape(event: dict, context) -> dict:
     except Exception as e:
         print(f"Coleman scrape failed: {e}")
 
-    world_cup_count = 0
+    wc_counts = {prefix: 0 for _, prefix, _ in WORLD_CUP_MARKETS}
     if now.date() <= WORLD_CUP_END_DATE:
         try:
-            world_cup_count = _scrape_world_cup(bucket, now, scraped_at)
+            wc_counts = _scrape_world_cup(bucket, now, scraped_at)
         except Exception as e:
             print(f"World Cup scrape failed: {e}")
 
     send_slack(
-        f":white_check_mark: AFL odds scraped at {scraped_at} — "
-        f"{len(results)} H2H games, {brownlow_count} Brownlow players, "
+        f":white_check_mark: sports odds scraped at {_melbourne_timestamp(now)} — "
+        f"{len(results)} AFL games, {brownlow_count} Brownlow players, "
         f"{premiership_count} Premiership teams, {rising_star_count} Rising Star players, "
-        f"{coleman_count} Coleman Medal players, {world_cup_count} World Cup selections"
+        f"{coleman_count} Coleman Medal players, "
+        f"{wc_counts['world-cup-winner']} World Cup odds, "
+        f"{wc_counts['world-cup-golden-boot']} Golden Boot odds, "
+        f"{wc_counts['world-cup-golden-ball']} Golden Ball odds"
     )
     return {"statusCode": 200, "games": len(results), "s3Key": dated_key}

@@ -772,6 +772,8 @@ class TestScrapeWorldCupCounts:
              patch.object(handler, "send_slack") as mock_slack:
             handler._scrape_world_cup("b", now, "2026-06-02T10:00:00Z")
         assert mock_slack.call_count == 2  # Golden Boot and Golden Ball both missing
+        for call in mock_slack.call_args_list:
+            assert call.args[1] == "SLACK_ALERTS_PARAM_NAME"
 
     def test_returns_zeroed_counts_when_no_event(self):
         import datetime as dtmod

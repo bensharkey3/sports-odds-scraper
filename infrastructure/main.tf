@@ -215,6 +215,7 @@ resource "aws_lambda_function" "scraper" {
       ENVIRONMENT                = var.environment
       SLACK_PARAM_NAME           = "/afl-odds/slack-webhook"
       SLACK_FAVOURITE_PARAM_NAME = "/afl-odds/slack-webhook-favourite"
+      SLACK_ALERTS_PARAM_NAME    = "/afl-odds/slack-webhook-alerts"
     }
   }
 

@@ -642,7 +642,9 @@ def _scrape_world_cup(bucket: str, now: datetime, scraped_at: str) -> dict[str, 
     for market_name, prefix, label in WORLD_CUP_MARKETS:
         market = find_market(markets, market_name)
         if market is None:
-            print(f"No '{market_name}' market for World Cup event {event['id']}")
+            msg = f"No '{market_name}' market found for World Cup event {event['id']} — market may have been renamed"
+            print(msg)
+            send_slack(msg)
             continue
 
         rows = parse_world_cup_odds(event, market, scraped_at)

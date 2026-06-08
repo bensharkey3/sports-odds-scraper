@@ -31,7 +31,7 @@ WORLD_CUP_END_DATE = date(2026, 7, 21)
 WORLD_CUP_MARKETS = [
     ("Winner 2026", "world-cup-winner", "World Cup Winner"),
     ("Golden Boot Winner", "world-cup-golden-boot", "World Cup Golden Boot"),
-    ("Golden Ball Winner", "world-cup-golden-ball", "World Cup Golden Ball"),
+    ("Golden Ball (Player of the Tournament)", "world-cup-golden-ball", "World Cup Golden Ball"),
 ]
 
 HEADERS = {

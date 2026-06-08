@@ -737,7 +737,7 @@ class TestScrapeWorldCupCounts:
                 {"name": "Kylian Mbappe", "price": {"winPrice": 6.5}},
                 {"name": "Harry Kane", "price": {"winPrice": 8.0}},
             ]),
-            _world_cup_market("Golden Ball Winner", selections=[
+            _world_cup_market("Golden Ball (Player of the Tournament)", selections=[
                 {"name": "Michael Olise", "price": {"winPrice": 7.0}},
                 {"name": "Jude Bellingham", "price": {"winPrice": 9.0}},
                 {"name": "Vinicius Jr", "price": {"winPrice": 10.0}},

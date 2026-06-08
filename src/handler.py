@@ -31,7 +31,7 @@ WORLD_CUP_END_DATE = date(2026, 7, 21)
 WORLD_CUP_MARKETS = [
     ("Winner 2026", "world-cup-winner", "World Cup Winner"),
     ("Golden Boot Winner", "world-cup-golden-boot", "World Cup Golden Boot"),
-    ("Golden Ball Winner", "world-cup-golden-ball", "World Cup Golden Ball"),
+    ("Golden Ball (Player of the Tournament)", "world-cup-golden-ball", "World Cup Golden Ball"),
 ]
 
 HEADERS = {
@@ -642,7 +642,9 @@ def _scrape_world_cup(bucket: str, now: datetime, scraped_at: str) -> dict[str, 
     for market_name, prefix, label in WORLD_CUP_MARKETS:
         market = find_market(markets, market_name)
         if market is None:
-            print(f"No '{market_name}' market for World Cup event {event['id']}")
+            msg = f"No '{market_name}' market found for World Cup event {event['id']} — market may have been renamed"
+            print(msg)
+            send_slack(msg, "SLACK_ALERTS_PARAM_NAME")
             continue
 
         rows = parse_world_cup_odds(event, market, scraped_at)

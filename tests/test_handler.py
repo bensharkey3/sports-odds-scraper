@@ -737,7 +737,7 @@ class TestScrapeWorldCupCounts:
                 {"name": "Kylian Mbappe", "price": {"winPrice": 6.5}},
                 {"name": "Harry Kane", "price": {"winPrice": 8.0}},
             ]),
-            _world_cup_market("Golden Ball Winner", selections=[
+            _world_cup_market("Golden Ball (Player of the Tournament)", selections=[
                 {"name": "Michael Olise", "price": {"winPrice": 7.0}},
                 {"name": "Jude Bellingham", "price": {"winPrice": 9.0}},
                 {"name": "Vinicius Jr", "price": {"winPrice": 10.0}},
@@ -756,6 +756,24 @@ class TestScrapeWorldCupCounts:
             "world-cup-golden-boot": 2,
             "world-cup-golden-ball": 3,
         }
+
+    def test_sends_slack_alert_when_market_missing(self):
+        import datetime as dtmod
+
+        event = _world_cup_event()
+        markets = [_world_cup_market("Winner 2026", selections=[{"name": "Spain", "price": {"winPrice": 5.0}}])]
+        now = dtmod.datetime(2026, 6, 2, 10, 0, tzinfo=dtmod.timezone.utc)
+        with patch.object(handler, "get_world_cup_event", return_value=event), \
+             patch.object(handler, "get_world_cup_markets", return_value=markets), \
+             patch.object(handler, "time", MagicMock()), \
+             patch.object(handler.s3, "put_object"), \
+             patch.object(handler, "_list_dated_keys", return_value=[]), \
+             patch.object(handler, "_check_world_cup_favourite_change"), \
+             patch.object(handler, "send_slack") as mock_slack:
+            handler._scrape_world_cup("b", now, "2026-06-02T10:00:00Z")
+        assert mock_slack.call_count == 2  # Golden Boot and Golden Ball both missing
+        for call in mock_slack.call_args_list:
+            assert call.args[1] == "SLACK_ALERTS_PARAM_NAME"
 
     def test_returns_zeroed_counts_when_no_event(self):
         import datetime as dtmod

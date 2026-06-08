@@ -801,8 +801,14 @@ def _scrape(event: dict, context) -> dict:
     scraped_at = now.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     print(f"Fetching AFL events at {scraped_at}")
-    events = get_afl_events()
-    print(f"Found {len(events)} match events")
+    try:
+        events = get_afl_events()
+        print(f"Found {len(events)} match events")
+    except Exception as e:
+        msg = f"AFL events API failed: {e}"
+        print(msg)
+        send_slack(msg, "SLACK_ALERTS_PARAM_NAME")
+        events = []
 
     results = []
     for afl_event in events:
@@ -820,6 +826,7 @@ def _scrape(event: dict, context) -> dict:
 
     if not results:
         print("No results — nothing uploaded")
+        send_slack("AFL H2H: zero records returned", "SLACK_ALERTS_PARAM_NAME")
         return {"statusCode": 200, "games": 0}
 
     # Each line is one JSON object
@@ -845,39 +852,64 @@ def _scrape(event: dict, context) -> dict:
     brownlow_count = 0
     try:
         brownlow_count = _scrape_brownlow(bucket, now, scraped_at)
+        if brownlow_count == 0:
+            send_slack("Brownlow: zero records returned", "SLACK_ALERTS_PARAM_NAME")
     except Exception as e:
-        print(f"Brownlow scrape failed: {e}")
+        msg = f"Brownlow scrape failed: {e}"
+        print(msg)
+        send_slack(msg, "SLACK_ALERTS_PARAM_NAME")
 
     premiership_count = 0
     try:
         premiership_count = _scrape_premiership(bucket, now, scraped_at)
+        if premiership_count == 0:
+            send_slack("Premiership: zero records returned", "SLACK_ALERTS_PARAM_NAME")
     except Exception as e:
-        print(f"Premiership scrape failed: {e}")
+        msg = f"Premiership scrape failed: {e}"
+        print(msg)
+        send_slack(msg, "SLACK_ALERTS_PARAM_NAME")
 
     rising_star_count = 0
     try:
         rising_star_count = _scrape_rising_star(bucket, now, scraped_at)
+        if rising_star_count == 0:
+            send_slack("Rising Star: zero records returned", "SLACK_ALERTS_PARAM_NAME")
     except Exception as e:
-        print(f"Rising Star scrape failed: {e}")
+        msg = f"Rising Star scrape failed: {e}"
+        print(msg)
+        send_slack(msg, "SLACK_ALERTS_PARAM_NAME")
 
     coleman_count = 0
     try:
         coleman_count = _scrape_coleman(bucket, now, scraped_at)
+        if coleman_count == 0:
+            send_slack("Coleman: zero records returned", "SLACK_ALERTS_PARAM_NAME")
     except Exception as e:
-        print(f"Coleman scrape failed: {e}")
+        msg = f"Coleman: scrape failed: {e}"
+        print(msg)
+        send_slack(msg, "SLACK_ALERTS_PARAM_NAME")
 
     wc_counts = {prefix: 0 for _, prefix, _ in WORLD_CUP_MARKETS}
     wc_match_count = 0
     if now.date() <= WORLD_CUP_END_DATE:
         try:
             wc_counts = _scrape_world_cup(bucket, now, scraped_at)
+            for _, prefix, label in WORLD_CUP_MARKETS:
+                if wc_counts[prefix] == 0:
+                    send_slack(f"{label}: zero records returned", "SLACK_ALERTS_PARAM_NAME")
         except Exception as e:
-            print(f"World Cup scrape failed: {e}")
+            msg = f"World Cup scrape failed: {e}"
+            print(msg)
+            send_slack(msg, "SLACK_ALERTS_PARAM_NAME")
 
         try:
             wc_match_count = _scrape_world_cup_matches(bucket, now)
+            if wc_match_count == 0:
+                send_slack("World Cup matches: zero records returned", "SLACK_ALERTS_PARAM_NAME")
         except Exception as e:
-            print(f"World Cup matches scrape failed: {e}")
+            msg = f"World Cup matches scrape failed: {e}"
+            print(msg)
+            send_slack(msg, "SLACK_ALERTS_PARAM_NAME")
 
     send_slack(
         f":white_check_mark: sports odds scraped at {_melbourne_timestamp(now)} — "

@@ -697,14 +697,14 @@ class TestWorldCupCutoff:
              patch.object(handler.s3, "put_object"), \
              patch.object(handler, "_list_dated_keys", return_value=[]), \
              patch.object(handler, "_check_favourite_changes"), \
-             patch.object(handler, "_scrape_brownlow", return_value=0), \
-             patch.object(handler, "_scrape_premiership", return_value=0), \
-             patch.object(handler, "_scrape_rising_star", return_value=0), \
-             patch.object(handler, "_scrape_coleman", return_value=0), \
+             patch.object(handler, "_scrape_brownlow", return_value=1), \
+             patch.object(handler, "_scrape_premiership", return_value=1), \
+             patch.object(handler, "_scrape_rising_star", return_value=1), \
+             patch.object(handler, "_scrape_coleman", return_value=1), \
              patch.object(handler, "_scrape_world_cup", return_value={
-                 "world-cup-winner": 0, "world-cup-golden-boot": 0, "world-cup-golden-ball": 0,
+                 "world-cup-winner": 1, "world-cup-golden-boot": 1, "world-cup-golden-ball": 1,
              }) as mock_wc, \
-             patch.object(handler, "_scrape_world_cup_matches", return_value=0), \
+             patch.object(handler, "_scrape_world_cup_matches", return_value=1), \
              patch.object(handler, "send_slack"):
             handler._scrape({}, None)
         return mock_wc
@@ -914,6 +914,95 @@ class TestScrapeWorldCupMatches:
              patch.object(handler, "_check_favourite_changes"):
             count = handler._scrape_world_cup_matches("b", now)
         assert count == 1
+
+
+# ── _scrape alert behaviour ───────────────────────────────────────────────────
+
+class TestScrapeAlerts:
+    """SLACK_ALERTS_PARAM_NAME is used on API failures and zero-record returns."""
+
+    def _run(self, **overrides):
+        import datetime as dtmod
+
+        now = dtmod.datetime(2026, 6, 2, 10, 0, tzinfo=dtmod.timezone.utc)
+        fake_dt = MagicMock()
+        fake_dt.now.return_value = now
+        fake_dt.fromtimestamp.side_effect = dtmod.datetime.fromtimestamp
+
+        patches = dict(
+            get_afl_events=MagicMock(return_value=[_event()]),
+            get_h2h_market=MagicMock(return_value=_market()),
+            _scrape_brownlow=MagicMock(return_value=1),
+            _scrape_premiership=MagicMock(return_value=1),
+            _scrape_rising_star=MagicMock(return_value=1),
+            _scrape_coleman=MagicMock(return_value=1),
+            _scrape_world_cup=MagicMock(return_value={
+                "world-cup-winner": 1, "world-cup-golden-boot": 1, "world-cup-golden-ball": 1,
+            }),
+            _scrape_world_cup_matches=MagicMock(return_value=1),
+        )
+        patches.update(overrides)
+
+        with patch.object(handler, "datetime", fake_dt), \
+             patch.dict(os.environ, {"RESULTS_BUCKET": "b"}), \
+             patch.object(handler, "time", MagicMock()), \
+             patch.object(handler, "get_afl_events", patches["get_afl_events"]), \
+             patch.object(handler, "get_h2h_market", patches["get_h2h_market"]), \
+             patch.object(handler.s3, "put_object"), \
+             patch.object(handler, "_list_dated_keys", return_value=[]), \
+             patch.object(handler, "_check_favourite_changes"), \
+             patch.object(handler, "_scrape_brownlow", patches["_scrape_brownlow"]), \
+             patch.object(handler, "_scrape_premiership", patches["_scrape_premiership"]), \
+             patch.object(handler, "_scrape_rising_star", patches["_scrape_rising_star"]), \
+             patch.object(handler, "_scrape_coleman", patches["_scrape_coleman"]), \
+             patch.object(handler, "_scrape_world_cup", patches["_scrape_world_cup"]), \
+             patch.object(handler, "_scrape_world_cup_matches", patches["_scrape_world_cup_matches"]), \
+             patch.object(handler, "send_slack") as mock_slack:
+            handler._scrape({}, None)
+        return mock_slack
+
+    def _alert_msgs(self, mock_slack):
+        return [
+            c.args[0] for c in mock_slack.call_args_list
+            if len(c.args) > 1 and c.args[1] == "SLACK_ALERTS_PARAM_NAME"
+        ]
+
+    def test_no_alerts_on_clean_run(self):
+        assert self._alert_msgs(self._run()) == []
+
+    def test_afl_events_api_failure_sends_alert(self):
+        mock_slack = self._run(get_afl_events=MagicMock(side_effect=Exception("timeout")))
+        assert any("AFL events API failed" in m for m in self._alert_msgs(mock_slack))
+
+    def test_afl_h2h_zero_results_sends_alert(self):
+        mock_slack = self._run(get_afl_events=MagicMock(return_value=[]))
+        assert any("AFL H2H: zero records returned" in m for m in self._alert_msgs(mock_slack))
+
+    def test_sub_scraper_exception_sends_alert(self):
+        mock_slack = self._run(_scrape_brownlow=MagicMock(side_effect=Exception("boom")))
+        assert any("Brownlow scrape failed" in m for m in self._alert_msgs(mock_slack))
+
+    def test_sub_scraper_zero_count_sends_alert(self):
+        mock_slack = self._run(_scrape_brownlow=MagicMock(return_value=0))
+        assert any("Brownlow: zero records returned" in m for m in self._alert_msgs(mock_slack))
+
+    def test_world_cup_exception_sends_alert(self):
+        mock_slack = self._run(_scrape_world_cup=MagicMock(side_effect=Exception("boom")))
+        assert any("World Cup scrape failed" in m for m in self._alert_msgs(mock_slack))
+
+    def test_world_cup_zero_count_sends_alert(self):
+        mock_slack = self._run(_scrape_world_cup=MagicMock(return_value={
+            "world-cup-winner": 0, "world-cup-golden-boot": 1, "world-cup-golden-ball": 1,
+        }))
+        assert any("World Cup Winner: zero records returned" in m for m in self._alert_msgs(mock_slack))
+
+    def test_world_cup_matches_exception_sends_alert(self):
+        mock_slack = self._run(_scrape_world_cup_matches=MagicMock(side_effect=Exception("boom")))
+        assert any("World Cup matches scrape failed" in m for m in self._alert_msgs(mock_slack))
+
+    def test_world_cup_matches_zero_sends_alert(self):
+        mock_slack = self._run(_scrape_world_cup_matches=MagicMock(return_value=0))
+        assert any("World Cup matches: zero records returned" in m for m in self._alert_msgs(mock_slack))
 
 
 # ── _melbourne_timestamp ──────────────────────────────────────────────────────

@@ -30,7 +30,7 @@ WORLD_CUP_END_DATE = date(2026, 7, 21)
 # (Sportsbet market name, S3 prefix, label used in alerts/summary, partial-match fallback keyword)
 WORLD_CUP_MARKETS = [
     ("Winner 2026", "world-cup-winner", "World Cup Winner", None),
-    ("Golden Boot Winner", "world-cup-golden-boot", "World Cup Golden Boot", None),
+    ("Golden Boot Winner", "world-cup-golden-boot", "World Cup Golden Boot", "golden boot"),
     ("Golden Ball (Player of the Tournament)", "world-cup-golden-ball", "World Cup Golden Ball", "golden ball"),
 ]
 

@@ -5,17 +5,21 @@ REGION ?= ap-southeast-2
 ACCOUNT_ID    := $(shell aws sts get-caller-identity --query Account --output text)
 ARTIFACT_BUCKET := afl-odds-artifacts-$(ACCOUNT_ID)
 ARTIFACT_KEY    := afl-odds/lambda.zip
+CHART_ARTIFACT_KEY := afl-odds/chart-lambda.zip
 
 BUILD_DIR := build
 ZIP_PATH  := $(BUILD_DIR)/lambda.zip
+CHART_ZIP_PATH := $(BUILD_DIR)/chart/chart-lambda.zip
 
-.PHONY: help bootstrap build upload deploy destroy invoke logs
+.PHONY: help bootstrap build build-chart upload upload-chart deploy destroy invoke logs
 
 help:
 	@echo ""
 	@echo "  make bootstrap          Create artifact S3 bucket (run once per account)"
 	@echo "  make build              Package Lambda with dependencies"
+	@echo "  make build-chart        Package self-contained chart builder Lambda"
 	@echo "  make upload             Upload zip to S3"
+	@echo "  make upload-chart       Upload chart builder zip to S3"
 	@echo "  make deploy  [ENV=dev]  Deploy/update Terraform infrastructure"
 	@echo "  make destroy [ENV=dev]  Destroy Terraform infrastructure"
 	@echo "  make invoke  [ENV=dev]  Manually invoke the Lambda"
@@ -40,13 +44,30 @@ build:
 	cd $(BUILD_DIR)/package && zip -r ../lambda.zip . -x "*.pyc" -x "*/__pycache__/*" -x "*.dist-info/*"
 	@echo "Built $(ZIP_PATH)"
 
+# ── Build chart builder (self-contained: pandas + matplotlib + fastparquet) ────
+# manylinux flags so a non-Linux host still produces Lambda-compatible wheels.
+build-chart:
+	@echo "Building chart builder package..."
+	rm -rf $(BUILD_DIR)/chart
+	mkdir -p $(BUILD_DIR)/chart/package
+	pip install -r src/requirements-chart.txt -t $(BUILD_DIR)/chart/package/ \
+		--platform manylinux2014_x86_64 --implementation cp --python-version 3.12 \
+		--only-binary=:all: --quiet
+	cp src/chart_builder.py $(BUILD_DIR)/chart/package/
+	cd $(BUILD_DIR)/chart/package && zip -rq ../chart-lambda.zip . -x "*.pyc" -x "*/__pycache__/*" -x "*.dist-info/*"
+	@echo "Built $(CHART_ZIP_PATH)"
+
 # ── Upload ────────────────────────────────────────────────────────────────────
 upload: build
 	@echo "Uploading to s3://$(ARTIFACT_BUCKET)/$(ARTIFACT_KEY)"
 	aws s3 cp $(ZIP_PATH) s3://$(ARTIFACT_BUCKET)/$(ARTIFACT_KEY) --region $(REGION)
 
+upload-chart: build-chart
+	@echo "Uploading to s3://$(ARTIFACT_BUCKET)/$(CHART_ARTIFACT_KEY)"
+	aws s3 cp $(CHART_ZIP_PATH) s3://$(ARTIFACT_BUCKET)/$(CHART_ARTIFACT_KEY) --region $(REGION)
+
 # ── Deploy ────────────────────────────────────────────────────────────────────
-deploy: upload
+deploy: upload upload-chart
 	@echo "Deploying $(ENV) environment..."
 	cd infrastructure && terraform init -input=false && \
 		(terraform workspace select $(ENV) 2>/dev/null || terraform workspace new $(ENV)) && \

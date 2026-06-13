@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 import boto3
 
 s3 = boto3.client("s3")
+lambda_client = boto3.client("lambda")
 
 # (S3 prefix, record type). Type drives how each JSONL record maps to (selection, odds) rows.
 #   "h2h"       — two selections per record (team1/team2 with their own odds)
@@ -129,4 +130,15 @@ def parquet_handler(event: dict, context) -> dict:
             print(f"{prefix}: parquet build failed: {e}")
             counts[prefix] = -1
     print(f"Parquet build summary: {counts}")
+
+    # Fire-and-forget the chart builder so it re-renders the line charts.
+    # Best-effort: a failure here must never fail the parquet build.
+    chart_fn = os.environ.get("CHART_FUNCTION_NAME")
+    if chart_fn:
+        try:
+            lambda_client.invoke(FunctionName=chart_fn, InvocationType="Event", Payload=b"{}")
+            print(f"Triggered chart builder: {chart_fn}")
+        except Exception as e:
+            print(f"Could not trigger chart builder: {e}")
+
     return {"statusCode": 200, "counts": counts}

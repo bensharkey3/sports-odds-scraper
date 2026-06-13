@@ -29,7 +29,7 @@ WORLD_CUP_MATCH_MARKET_SORT = "MR"
 WORLD_CUP_END_DATE = date(2026, 7, 21)
 # (Sportsbet market name, S3 prefix, label used in alerts/summary, partial-match fallback keyword)
 WORLD_CUP_MARKETS = [
-    ("Winner 2026", "world-cup-winner", "World Cup Winner", None),
+    ("Winner 2026", "world-cup-winner", "World Cup Winner", "world cup winner"),
     ("Golden Boot Winner", "world-cup-golden-boot", "World Cup Golden Boot", "golden boot"),
     ("Golden Ball (Player of the Tournament)", "world-cup-golden-ball", "World Cup Golden Ball", "golden ball"),
 ]
@@ -559,9 +559,13 @@ def get_world_cup_event() -> dict | None:
     for e in events:
         if e.get("name") == WORLD_CUP_EVENT_NAME:
             return e
-    # Fallback: the outrights tournament event if the exact name changes slightly
+    # Fallback: any tournament event in this competition with "Outrights" in the name
     for e in events:
         if e.get("eventSort") == "TNMT" and "Outrights" in e.get("name", ""):
+            return e
+    # Broader fallback: any tournament event in this competition
+    for e in events:
+        if e.get("eventSort") == "TNMT":
             return e
     return None
 

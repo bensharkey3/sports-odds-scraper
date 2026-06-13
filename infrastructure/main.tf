@@ -198,6 +198,20 @@ resource "aws_iam_role_policy" "lambda_ssm" {
   })
 }
 
+resource "aws_iam_role_policy" "lambda_invoke_parquet" {
+  name = "invoke-parquet-builder"
+  role = aws_iam_role.lambda.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = "lambda:InvokeFunction"
+      Resource = aws_lambda_function.parquet_builder.arn
+    }]
+  })
+}
+
 resource "aws_lambda_function" "scraper" {
   function_name = "sports-odds-scraper-${var.environment}"
   description   = "Fetches AFL H2H odds from Sportsbet and writes JSONL to S3"
@@ -216,6 +230,7 @@ resource "aws_lambda_function" "scraper" {
       SLACK_PARAM_NAME           = "/afl-odds/slack-webhook"
       SLACK_FAVOURITE_PARAM_NAME = "/afl-odds/slack-webhook-favourite"
       SLACK_ALERTS_PARAM_NAME    = "/afl-odds/slack-webhook-alerts"
+      PARQUET_FUNCTION_NAME      = aws_lambda_function.parquet_builder.function_name
     }
   }
 
@@ -298,6 +313,85 @@ resource "aws_s3_bucket_notification" "results" {
   }
 
   depends_on = [aws_lambda_permission.s3_invoke_notifier]
+}
+
+resource "aws_iam_role" "parquet_builder" {
+  name = "afl-odds-parquet-builder-${var.environment}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "lambda.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "parquet_builder_basic" {
+  role       = aws_iam_role.parquet_builder.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy" "parquet_builder_s3" {
+  name = "s3-parquet"
+  role = aws_iam_role.parquet_builder.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = "s3:GetObject"
+        Resource = [
+          "${aws_s3_bucket.results.arn}/odds/*",
+          "${aws_s3_bucket.results.arn}/brownlow/*",
+          "${aws_s3_bucket.results.arn}/premiership/*",
+          "${aws_s3_bucket.results.arn}/rising-star/*",
+          "${aws_s3_bucket.results.arn}/coleman/*",
+          "${aws_s3_bucket.results.arn}/world-cup-winner/*",
+          "${aws_s3_bucket.results.arn}/world-cup-golden-boot/*",
+          "${aws_s3_bucket.results.arn}/world-cup-golden-ball/*",
+          "${aws_s3_bucket.results.arn}/world-cup-matches/*",
+        ]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:PutObject", "s3:GetObject"]
+        Resource = "${aws_s3_bucket.results.arn}/parquet/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = "s3:ListBucket"
+        Resource = aws_s3_bucket.results.arn
+      }
+    ]
+  })
+}
+
+resource "aws_lambda_function" "parquet_builder" {
+  function_name = "afl-odds-parquet-builder-${var.environment}"
+  description   = "Rebuilds per-endpoint odds-over-time Parquet files from JSONL snapshots"
+  role          = aws_iam_role.parquet_builder.arn
+  handler       = "parquet_builder.parquet_handler"
+  runtime       = "python3.12"
+  timeout       = var.lambda_timeout
+  memory_size   = 512
+  s3_bucket     = var.artifact_bucket
+  s3_key        = var.artifact_key
+  layers        = [var.pandas_layer_arn]
+
+  environment {
+    variables = {
+      RESULTS_BUCKET = aws_s3_bucket.results.bucket
+      ENVIRONMENT    = var.environment
+    }
+  }
+
+  tags = {
+    Environment = var.environment
+    Project     = "sports-odds-scraper"
+  }
 }
 
 resource "aws_iam_role" "scheduler" {

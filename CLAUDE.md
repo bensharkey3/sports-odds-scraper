@@ -26,5 +26,5 @@ Scrapes AFL head-to-head odds from the Sportsbet API and writes JSONL files to S
 ## Git workflow
 
 - Never commit directly to main branch.
-- Before making any code changes, check which branch you're on, always pull from main before creating a new branch from main before making any code changes
+- Before making any code changes, check which branch you're on. If the current branch has been deleted from remote then always pull from main before creating a new branch from main before making any code changes.
 - After completing any code changes, commit the changes, and raise a PR without waiting to be asked.

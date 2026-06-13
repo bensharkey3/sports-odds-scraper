@@ -29,9 +29,10 @@ WORLD_CUP_MATCH_MARKET_SORT = "MR"
 WORLD_CUP_END_DATE = date(2026, 7, 21)
 # (Sportsbet market name, S3 prefix, label used in alerts/summary, partial-match fallback keyword)
 WORLD_CUP_MARKETS = [
-    (["Winner 2026"], "world-cup-winner", "World Cup Winner", "world cup winner"),
-    (["Golden Boot Winner"], "world-cup-golden-boot", "World Cup Golden Boot", "golden boot"),
-    (["Golden Ball (Player of the Tournament)", "Golden Ball Winner"], "world-cup-golden-ball", "World Cup Golden Ball", "golden ball"),
+    (["Winner 2026"], "world-cup-winner", "World Cup Winner", "world cup winner", True),
+    (["Golden Boot Winner"], "world-cup-golden-boot", "World Cup Golden Boot", "golden boot", True),
+    # alert_on_missing=False: Sportsbet removes this market mid-tournament and re-adds it later
+    (["Golden Ball (Player of the Tournament)", "Golden Ball Winner"], "world-cup-golden-ball", "World Cup Golden Ball", "golden ball", False),
 ]
 
 HEADERS = {
@@ -635,7 +636,7 @@ def _check_world_cup_favourite_change(
 
 
 def _scrape_world_cup(bucket: str, now: datetime, scraped_at: str) -> dict[str, int]:
-    counts = {prefix: 0 for _, prefix, _, _ in WORLD_CUP_MARKETS}
+    counts = {prefix: 0 for _, prefix, _, _, _ in WORLD_CUP_MARKETS}
 
     print("Fetching World Cup outrights event")
     event = get_world_cup_event()
@@ -649,12 +650,13 @@ def _scrape_world_cup(bucket: str, now: datetime, scraped_at: str) -> dict[str, 
         print(f"No markets for World Cup event {event['id']}")
         return counts
 
-    for market_names, prefix, label, keyword in WORLD_CUP_MARKETS:
+    for market_names, prefix, label, keyword, alert_on_missing in WORLD_CUP_MARKETS:
         market = find_market(markets, market_names, keyword)
         if market is None:
-            msg = f"No '{market_names[0]}' market found for World Cup event {event['id']} — market may have been renamed"
-            print(msg)
-            send_slack(msg, "SLACK_ALERTS_PARAM_NAME")
+            if alert_on_missing:
+                msg = f"No '{market_names[0]}' market found for World Cup event {event['id']} — market may have been renamed"
+                print(msg)
+                send_slack(msg, "SLACK_ALERTS_PARAM_NAME")
             continue
 
         rows = parse_world_cup_odds(event, market, scraped_at)
@@ -899,13 +901,13 @@ def _scrape(event: dict, context) -> dict:
         print(msg)
         send_slack(msg, "SLACK_ALERTS_PARAM_NAME")
 
-    wc_counts = {prefix: 0 for _, prefix, _, _ in WORLD_CUP_MARKETS}
+    wc_counts = {prefix: 0 for _, prefix, _, _, _ in WORLD_CUP_MARKETS}
     wc_match_count = 0
     if now.date() <= WORLD_CUP_END_DATE:
         try:
             wc_counts = _scrape_world_cup(bucket, now, scraped_at)
-            for _, prefix, label, _ in WORLD_CUP_MARKETS:
-                if wc_counts[prefix] == 0:
+            for _, prefix, label, _, alert_on_missing in WORLD_CUP_MARKETS:
+                if wc_counts[prefix] == 0 and alert_on_missing:
                     send_slack(f"{label}: zero records returned", "SLACK_ALERTS_PARAM_NAME")
         except Exception as e:
             msg = f"World Cup scrape failed: {e}"

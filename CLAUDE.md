@@ -2,7 +2,9 @@
 
 ## What this project does
 
-Scrapes AFL head-to-head odds from the Sportsbet API and writes JSONL files to S3. Runs as an AWS Lambda function triggered by EventBridge Scheduler every 2 hours between 9am–9pm Melbourne time. The purpose is to create a data that can be analysed later.
+Scrapes AFL and FIFA World Cup 2026 odds from the Sportsbet API and writes JSONL files to S3. Runs as an AWS Lambda function triggered by EventBridge Scheduler every hour, 24/7, Melbourne time. The purpose is to create data that can be analysed later.
+
+Two downstream Lambdas run as a chain after the scraper (each async-invokes the next on completion): the **parquet builder** (`parquet_builder.py`) consolidates each market's JSONL history into `parquet/<market>.parquet` (columns: `date`, `selection`, `odds`), and the **chart builder** (`chart_builder.py`) renders an odds-over-time line chart to `charts/<market>.png`. See `README.md` for the architecture diagram and output formats.
 
 ## Priorities
 

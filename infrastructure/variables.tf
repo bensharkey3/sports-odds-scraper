@@ -42,6 +42,6 @@ variable "lambda_memory" {
 
 variable "pandas_layer_arn" {
   type        = string
-  default     = "arn:aws:lambda:ap-southeast-2:336392948345:layer:AWSSDKPandas-Python312:25"
+  default     = "arn:aws:lambda:ap-southeast-2:336392948345:layer:AWSSDKPandas-Python312:27"
   description = "AWS-managed SDK for pandas layer (pandas + pyarrow) for the parquet builder Lambda"
 }

@@ -36,7 +36,7 @@ build:
 	rm -rf $(BUILD_DIR)
 	mkdir -p $(BUILD_DIR)/package
 	pip install -r src/requirements.txt -t $(BUILD_DIR)/package/ --quiet
-	cp src/handler.py $(BUILD_DIR)/package/
+	cp src/handler.py src/parquet_builder.py $(BUILD_DIR)/package/
 	cd $(BUILD_DIR)/package && zip -r ../lambda.zip . -x "*.pyc" -x "*/__pycache__/*" -x "*.dist-info/*"
 	@echo "Built $(ZIP_PATH)"
 

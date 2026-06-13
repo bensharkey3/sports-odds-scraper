@@ -29,9 +29,9 @@ WORLD_CUP_MATCH_MARKET_SORT = "MR"
 WORLD_CUP_END_DATE = date(2026, 7, 21)
 # (Sportsbet market name, S3 prefix, label used in alerts/summary, partial-match fallback keyword)
 WORLD_CUP_MARKETS = [
-    ("Winner 2026", "world-cup-winner", "World Cup Winner", "world cup winner"),
-    ("Golden Boot Winner", "world-cup-golden-boot", "World Cup Golden Boot", "golden boot"),
-    ("Golden Ball (Player of the Tournament)", "world-cup-golden-ball", "World Cup Golden Ball", "golden ball"),
+    (["Winner 2026"], "world-cup-winner", "World Cup Winner", "world cup winner"),
+    (["Golden Boot Winner"], "world-cup-golden-boot", "World Cup Golden Boot", "golden boot"),
+    (["Golden Ball (Player of the Tournament)", "Golden Ball Winner"], "world-cup-golden-ball", "World Cup Golden Ball", "golden ball"),
 ]
 
 HEADERS = {
@@ -577,10 +577,11 @@ def get_world_cup_markets(event_id: int) -> list[dict]:
     return response.json()
 
 
-def find_market(markets: list[dict], name: str, fallback_keyword: str | None = None) -> dict | None:
-    for market in markets:
-        if market.get("name") == name:
-            return market
+def find_market(markets: list[dict], names: list[str], fallback_keyword: str | None = None) -> dict | None:
+    for name in names:
+        for market in markets:
+            if market.get("name") == name:
+                return market
     if fallback_keyword:
         kw = fallback_keyword.lower()
         for market in markets:
@@ -648,10 +649,10 @@ def _scrape_world_cup(bucket: str, now: datetime, scraped_at: str) -> dict[str, 
         print(f"No markets for World Cup event {event['id']}")
         return counts
 
-    for market_name, prefix, label, keyword in WORLD_CUP_MARKETS:
-        market = find_market(markets, market_name, keyword)
+    for market_names, prefix, label, keyword in WORLD_CUP_MARKETS:
+        market = find_market(markets, market_names, keyword)
         if market is None:
-            msg = f"No '{market_name}' market found for World Cup event {event['id']} — market may have been renamed"
+            msg = f"No '{market_names[0]}' market found for World Cup event {event['id']} — market may have been renamed"
             print(msg)
             send_slack(msg, "SLACK_ALERTS_PARAM_NAME")
             continue

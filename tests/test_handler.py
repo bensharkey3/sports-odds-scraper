@@ -616,11 +616,16 @@ class TestParseWorldCupOdds:
 class TestFindMarket:
     def test_returns_market_with_matching_name(self):
         markets = [_world_cup_market("Winner 2026"), _world_cup_market("Golden Boot Winner")]
-        assert handler.find_market(markets, "Golden Boot Winner")["name"] == "Golden Boot Winner"
+        assert handler.find_market(markets, ["Golden Boot Winner"])["name"] == "Golden Boot Winner"
 
     def test_returns_none_when_absent(self):
         markets = [_world_cup_market("Winner 2026")]
-        assert handler.find_market(markets, "Golden Ball Winner") is None
+        assert handler.find_market(markets, ["Golden Ball Winner"]) is None
+
+    def test_returns_market_matching_second_known_name(self):
+        markets = [_world_cup_market("Golden Ball Winner")]
+        result = handler.find_market(markets, ["Golden Ball (Player of the Tournament)", "Golden Ball Winner"])
+        assert result["name"] == "Golden Ball Winner"
 
 
 # ── _previous_world_cup_favourite ─────────────────────────────────────────────

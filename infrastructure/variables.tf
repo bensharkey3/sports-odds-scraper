@@ -40,6 +40,12 @@ variable "lambda_memory" {
   description = "Lambda memory in MB"
 }
 
+variable "chart_artifact_key" {
+  type        = string
+  default     = "afl-odds/chart-lambda.zip"
+  description = "S3 key of the self-contained chart builder Lambda zip (pandas + matplotlib + fastparquet)"
+}
+
 variable "pandas_layer_arn" {
   type        = string
   default     = "arn:aws:lambda:ap-southeast-2:336392948345:layer:AWSSDKPandas-Python312:27"

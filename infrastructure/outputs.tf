@@ -22,3 +22,13 @@ output "parquet_s3_path" {
   description = "S3 path where odds-over-time Parquet files are written"
   value       = "s3://${aws_s3_bucket.results.bucket}/parquet/"
 }
+
+output "chart_builder_function_name" {
+  description = "Chart builder Lambda function name"
+  value       = aws_lambda_function.chart_builder.function_name
+}
+
+output "charts_s3_path" {
+  description = "S3 path where odds-over-time chart PNGs are written"
+  value       = "s3://${aws_s3_bucket.results.bucket}/charts/"
+}

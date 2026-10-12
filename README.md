@@ -2,6 +2,8 @@
 
 Scrapes AFL and FIFA World Cup 2026 odds from the Sportsbet API and writes JSONL files to S3. Runs as an AWS Lambda function on a scheduled trigger every hour, 24 hours a day (Melbourne time).
 
+**Scraping is currently paused for the AFL offseason.** The 2026 season ended in September and no data has been collected since 22 September 2026, so the prod schedule is disabled (`schedule_enabled = "DISABLED"` in `infrastructure/tfvars/prod.tfvars`, paused 13 October 2026). To resume for the 2027 season, set it back to `"ENABLED"` and merge to `main`.
+
 ## What it does
 
 Each run scrapes the following markets:
@@ -29,7 +31,7 @@ After each run the scraper:
 
 ```mermaid
 flowchart TD
-    EB([EventBridge Scheduler<br/>hourly, 24/7, AEST/AEDT]) -->|invoke| SCRAPER
+    EB([EventBridge Scheduler<br/>hourly, 24/7, AEST/AEDT<br/>paused in offseason]) -->|invoke| SCRAPER
     API[(Sportsbet API)] -->|fetch odds| SCRAPER
     SSM[(SSM Parameter Store<br/>Slack webhook URLs)] --> SCRAPER
 

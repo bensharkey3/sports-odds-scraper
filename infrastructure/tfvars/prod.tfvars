@@ -1,4 +1,4 @@
 environment      = "prod"
-schedule_enabled = "ENABLED"
+schedule_enabled = "DISABLED"
 lambda_timeout   = 120
 lambda_memory    = 128
